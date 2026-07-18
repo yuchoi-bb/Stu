@@ -308,7 +308,9 @@ def post_message():
     build_id = db.execute("INSERT INTO builds (studio_id, attempt) VALUES (?,?)",
                           (studio_id, attempt))
 
+    from . import metrics
     from .pipeline import run_generation
+    jobs.submit(metrics.maybe_summarize, user_id, session_id)  # §4.2, 베스트에포트
     jobs.submit(run_generation, user_id, session_id, studio_id, build_id)
     return jsonify({"studio_id": studio_id, "build_id": build_id,
                     "attempt": attempt}), 202
@@ -410,6 +412,40 @@ def cancel_build(build_id):
             pass   # 폴링 fallback이 최종 상태를 보정
         jobs.set_build_status(build_id, "cancelled", completed=True)
     return jsonify({"status": "cancel_requested"})
+
+
+# ---------- 관리자: 미터링/지표 (§10, is_admin 한정) ----------
+
+@app.get("/api/studio/admin/metrics")
+def admin_metrics():
+    _require_admin()
+    from . import metrics
+    return jsonify({"overall": metrics.overall_metrics(),
+                    "users": metrics.user_metrics()})
+
+
+@app.get("/api/studio/admin/branches")
+def admin_branches():
+    """관리자 브랜치 조회 (§6.1): 요청 이력 브랜치 + 최근 상태. 자동 삭제 없음."""
+    _require_admin()
+    rows = db.query(
+        """SELECT s.repo, s.branch_name, s.user_id,
+                  MAX(s.created_at) AS last_studio_at,
+                  COUNT(DISTINCT s.studio_id) AS studios,
+                  (SELECT b.status FROM builds b
+                   JOIN studios s2 ON s2.studio_id=b.studio_id
+                   WHERE s2.branch_name = s.branch_name
+                   ORDER BY b.created_at DESC LIMIT 1) AS last_build_status
+           FROM studios s WHERE s.branch_name IS NOT NULL
+           GROUP BY s.repo, s.branch_name, s.user_id
+           ORDER BY last_studio_at DESC""")
+    return jsonify([dict(r) for r in rows])
+
+
+def _require_admin():
+    row = db.one("SELECT is_admin FROM users WHERE user_id=?", (current_user(),))
+    if not row or not row["is_admin"]:
+        abort(403, "관리자 전용")
 
 
 # ---------- 첨부 (§8) ----------

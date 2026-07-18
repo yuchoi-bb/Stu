@@ -243,4 +243,38 @@ old = db.one("SELECT status FROM studios WHERE studio_id=?", (studio_id,))
 assert old["status"] == "abandoned", dict(old)
 print("OK: E 경로 — 재확정 시 새 studio_id 발급 + 기존 abandoned")
 
+# ---------- 미터링/지표 (§10) ----------
+
+assert client.get("/api/studio/admin/metrics", headers=H).status_code == 403
+db.execute("UPDATE users SET is_admin=1 WHERE user_id='hong'")
+m = client.get("/api/studio/admin/metrics", headers=H).get_json()
+assert m["overall"]["studios_total"] >= 2
+assert m["overall"]["avg_attempts_per_studio"] >= 1
+assert any(u["user_id"] == "hong" for u in m["users"])
+br = client.get("/api/studio/admin/branches", headers=H).get_json()
+assert any(b["branch_name"] == "feature/foo" for b in br)
+print("OK: 관리자 미터링/지표 + 브랜치 조회 (권한 가드 포함)")
+
+# ---------- 멀티턴 요약 (§4.2) ----------
+
+from studio import metrics as metrics_mod
+for i in range(metrics_mod.SUMMARY_TRIGGER + 4):
+    db.execute("INSERT INTO messages (session_id, role, content) VALUES (?,?,?)",
+               (sid, "user" if i % 2 == 0 else "assistant", f"turn {i}"))
+with mock.patch.object(metrics_mod, "invoke_claude", create=True):
+    with mock.patch("studio.metrics.db", db):
+        import studio.bedrock as bedrock_mod
+        with mock.patch.object(
+                bedrock_mod, "invoke_claude",
+                lambda *a, **k: {"output": {"message": {"content": [
+                    {"text": "요약: 내림 처리 요구, 3회 실패 후 수렴"}]}},
+                    "usage": {}}):
+            # metrics.maybe_summarize는 함수 내부에서 bedrock을 import
+            with mock.patch("studio.metrics.config") as _cfg:
+                _cfg.HISTORY_RECENT_TURNS = 6
+                assert metrics_mod.maybe_summarize("hong", sid) is True
+row = db.one("SELECT summary FROM sessions WHERE session_id=?", (sid,))
+assert row["summary"] and "요약" in row["summary"]
+print("OK: 멀티턴 요약 정책 (오래된 턴 → summary 치환)")
+
 print("\nALL BACKEND TESTS PASSED")
