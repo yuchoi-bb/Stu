@@ -269,6 +269,8 @@ def invoke_claude(user_id, session_id, messages, system):
 - 프론트는 `GET /api/studio/status/{studio_id}` 폴링 — 최신 회차 상태 + 회차 이력 반환
 - 요청 취소: `builds.cancel_requested` **DB 컬럼**에 기록 → 작업 스레드가 체크포인트마다
   DB 확인 (메모리 플래그 대신 DB — 재시작 후 상태 일관성, 추후 worker 증설에도 안전)
+  - 상태별 처리: `generating` = 스레드 중단 / `ci_running` = **stage로 취소 시그널 전송**
+    (run cancel API, §6.2 취소 전파) — stage의 빌드/테스트는 시그널 없이는 멈추지 않음
 - **실행 모델: worker 1 × threads 16 고정.** 워크로드가 I/O 대기(Bedrock/GHE/DB) 중심이라
   스레드만으로 충분. 단일 프로세스이므로 refresh 스케줄러는 앱 내 백그라운드 스레드
   1개로 단일 실행 보장 — 별도 프로세스 분리 불필요. worker를 늘리려면 스케줄러
@@ -372,11 +374,19 @@ Flask(ThreadPool)
  → builds.status 갱신 + CI 로그 요약을 세션 대화에 자동 주입 (fail_summary 저장)
 ```
 
-**이전 회차 장부 정리 (선제 cancelled 마킹):**
+**취소 전파 — Studio → stage 취소 시그널 (필수):**
 
-- attempt N+1을 dispatch하기 **직전**, 같은 studio의 attempt N이 아직 `ci_running`이면
-  Studio가 먼저 `builds.status=cancelled`로 마킹한다 — concurrency가 이전 run을 자동
-  취소하므로, **취소를 유발한 Studio 자신이 장부도 정리**한다 (화면 "검증 중" 방치 방지)
+stage에서 이미 돌고 있는 빌드/테스트는 저절로 멈추지 않는다. 취소 경로는 2가지:
+
+1. **사용자 취소 버튼** (`ci_running` 회차): 새 run이 없으므로 concurrency가 발동하지
+   않는다 → Studio가 **명시적으로 취소 시그널 전송**:
+   `POST /repos/{owner}/{repo}/actions/runs/{run_id}/cancel` (builds.run_id, 본인 토큰)
+   → stage의 해당 run(Zone2 Build/Zone3 Test 포함) 중단 → `builds.status=cancelled`
+   - run_id 확보 전(폴링 매칭 중)에 취소가 오면: run_id 확보 즉시 cancel 호출
+2. **새 회차 dispatch**: concurrency(§상단 yaml)가 이전 run을 자동 취소
+   — 단, **dispatch 직전 Studio가 attempt N을 먼저 `cancelled`로 마킹**한다.
+   취소를 유발한 Studio 자신이 장부도 정리 (화면 "검증 중" 방치 방지)
+
 - webhook/폴링 fallback은 보정 수단 (GHE 측 취소 통지가 오면 멱등 처리)
 
 **run 추적 (dispatch API는 run id를 반환하지 않음):**
@@ -610,7 +620,7 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
 - [ ] build 회차 모델 구현: 실패 시 attempt+1 생성 + 이전 회차 fail_summary 컨텍스트 누적 주입 (§7.1 Step 5)
 - [ ] CI 완료 webhook `/api/studio/ci-callback` + 서명 검증
 - [ ] webhook 유실 대비 run_id 기준 폴링 fallback
-- [ ] 새 회차 dispatch 직전 이전 회차 선제 cancelled 마킹 (§6.2 장부 정리 규칙)
+- [ ] 취소 전파 구현 (§6.2): 사용자 취소 시 run cancel API 호출(stage 중단 시그널) + 새 회차 dispatch 직전 이전 회차 선제 cancelled 마킹
 - [ ] CI 로그 요약 → 대화 자동 주입 (실패 로그 추출 규칙)
 - [ ] Step 3.5 코드 리뷰 게이트: 생성 파일 diff 표시 + 승인/거부 + 승인 모드 설정(매번 확인 기본/자동 승인) + awaiting_review 상태
 - [ ] push 충돌 처리 (§6.5): 원격 HEAD 기반 커밋 + 1회 재시도 + **blob SHA 가드(조용한 덮어쓰기 차단)** + push_conflict 상태/안내 UI
