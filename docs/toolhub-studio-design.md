@@ -575,6 +575,9 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
 
 ### 12.1 사전 확인 (구현 전 질문)
 
+> 수신처별 발송용 질문지: `docs/toolhub-studio-precheck.md` (진행 추적 표 포함).
+> 회신 시 질문지의 추적 표와 아래 체크박스를 함께 갱신할 것.
+
 - [ ] Knox SSO 운영 조직 확인 + 신규 서비스(ToolHub) 연동 신청 절차·리드타임 파악 — **4개 서비스(Studio/CICD/Release/SignTool) 콜백 포함** **(Phase 1 전 필수)**
 - [ ] Knox SSO 프로토콜 확인 (SAML → `mod_auth_mellon` / OIDC → `mod_auth_openidc`) — GHE/Jira 연동 방식 참고
 - [ ] **GHE OAuth App 등록 권한/절차 확인 (org 정책, 관리자 승인 여부)** **(Phase 2 전 필수)**
