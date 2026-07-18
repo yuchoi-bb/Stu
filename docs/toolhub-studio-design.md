@@ -30,6 +30,7 @@
 | 서비스 식별자 (v0.10) | 명칭 표기 혼용 (Studio/CICD dashboard/…) | **`studio`/`stage`/`release`/`signtool` 소문자 통일** (§3.1) — `studio`=생성, `stage`=기존 빌드/검증 체인 소유 | 경로/로그 표기 일관성, 짧은 식별자, 서비스 경계 명확화 |
 | 작업 식별자 (v0.10) | `request_id` | **`studio_id`** (전면 개칭) | `stage`의 `buildid` 선례("소유 서비스+id")와 대칭, "request" 중의성 제거, 통합 로그에서 자기설명적 |
 | 작업:검증 관계 (v0.10) | 1 request = 1 커밋 = 1 run = 1 buildid | **1 studio_id : N buildid** — 실패 시 같은 studio_id 아래 build 회차 누적, 이전 회차 코드·실패 결과를 다음 생성 컨텍스트에 주입 | 반복 개선이 Studio의 핵심 루프 — 이력이 누적되어야 LLM이 앞선 실수를 회피 |
+| push 충돌 감지 (v0.10) | non-FF 거부 + 1회 재시도 | **blob SHA 가드 추가** (§6.5) — 생성 시점 원문 vs push 시점 원격 파일 비교, 다르면 push_conflict | 파일 전체 교체는 git merge 충돌이 발동하지 않음 → 사용자 수정의 조용한 덮어쓰기를 반드시 충돌로 표면화 |
 
 **신원 원칙 (통일)**: AWS도 GHE도 **사용자 본인 계정**. Bedrock은 device flow,
 GHE는 개인 PAT. 서버는 각 사용자의 자격증명을 암호화 대리 보관할 뿐, 모든 행위는 본인 명의.
@@ -325,6 +326,8 @@ prompts(prompt_id PK, name, version, content, created_at)
 - 사용자가 Studio 설정에서 **자신의 작업 브랜치를 지정** (`user_branch_config`)
 - **가드 (필수)**: `main` 및 보호 브랜치는 대상 지정 불가 — 저장 시 GHE API로
   protection 여부 확인 후 거부
+- **가드 (필수)**: 다른 사용자가 이미 지정한 브랜치는 지정 불가 —
+  한 브랜치에 두 사용자의 대리 작업이 겹치는 것을 원천 차단
 - 브랜치 존재하지 않으면 지정 base(기본 main)에서 생성 제안
 - 관리 주체는 **관리자**: Studio 관리자 화면에서 요청 이력이 있는 브랜치 목록
   (마지막 커밋일, CI 상태 포함) 조회 → 정리 판단은 사람이. **자동 삭제 없음**
@@ -394,6 +397,14 @@ injection) 경유 임의 코드 실행 위험. 대책:
 - 그래도 거부되면(push 사이에 사용자가 먼저 push): 1회 재시도(재fetch 후 재생성)
 - 동일 파일 충돌 시: **강제 push 절대 금지** → 상태 `push_conflict`로 전이 +
   "로컬 변경과 충돌" 안내, 사용자가 브랜치 정리 후 재시도 판단
+- **조용한 덮어쓰기 금지 — blob SHA 가드 (필수)**: 위 절차만으로는 못 잡는 구멍이 있다.
+  파일 전체 교체 전략(§7.1)은 git merge를 거치지 않으므로, 생성 중(수 분)에 사용자가
+  같은 파일을 직접 수정해 push한 경우 Studio 커밋이 **충돌 없이 정상 fast-forward로
+  그 수정을 덮어쓴다.** 대책: Step 3 pass 2에서 원문 fetch 시 **파일별 blob SHA 기록**
+  → push 직전 원격 HEAD의 동일 파일 blob SHA와 비교 → 다르면 push 중단,
+  `push_conflict` 전이 + "생성 중 브랜치에서 해당 파일 변경됨" 안내.
+  사용자는 재생성(새 회차, 최신 원문 기반) 여부를 판단. **조용한 덮어쓰기는 절대 금지,
+  반드시 충돌로 표면화한다.**
 - 상태 전이 확장: `generating → pushing → (push_conflict) → ci_running → ...`
 
 ### 6.6 검증 통과 이후 워크플로우 (미정 — Todo)
@@ -559,7 +570,7 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
 - [ ] GHE OAuth App 등록 (관리자 1회) + "GitHub 연결" 버튼 → 승인 → 콜백 → 토큰 획득 플로우 구현
 - [ ] GHE 토큰 암호화 저장 + refresh 자동 갱신 + 401/만료 감지 → 재연결 배너
 - [ ] (폴백) PAT 등록 화면 + 발급 가이드 (OAuth App 불가 시에만 활성화)
-- [ ] 브랜치 설정 화면 (user_branch_config) + **보호 브랜치 지정 금지 가드** + 미존재 시 생성 제안
+- [ ] 브랜치 설정 화면 (user_branch_config) + **보호 브랜치 지정 금지 가드** + **타 사용자 중복 지정 금지 가드** + 미존재 시 생성 제안
 - [ ] 커밋 생성 로직: author=본인, 메시지 규칙, requirements md 동반 커밋
 - [ ] **workflow 파일 수정 금지 가드** (생성 결과에 .github/workflows 변경 시 push 거부)
 - [ ] `studio-verify.yml` 작성: workflow_dispatch(inputs: studio_id/attempt/user) + run-name + concurrency 취소 — **stage 측 파일** (변경 조율 필요)
@@ -570,7 +581,7 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
 - [ ] CI 완료 webhook `/api/studio/ci-callback` + 서명 검증
 - [ ] webhook 유실 대비 run_id 기준 폴링 fallback
 - [ ] CI 로그 요약 → 대화 자동 주입 (실패 로그 추출 규칙)
-- [ ] push 충돌 처리 (§6.5): 원격 HEAD 기반 커밋 + 1회 재시도 + push_conflict 상태/안내 UI
+- [ ] push 충돌 처리 (§6.5): 원격 HEAD 기반 커밋 + 1회 재시도 + **blob SHA 가드(조용한 덮어쓰기 차단)** + push_conflict 상태/안내 UI
 - [ ] Step 3 2-pass 구현: 수정 대상 파일 지목 → GHE 원문 fetch → 재호출 (파일 전체 교체 방식)
 - [ ] Bedrock 429 백오프 / push·dispatch 재시도(3회) 에러 처리
 
