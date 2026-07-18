@@ -32,6 +32,7 @@
 | 작업:검증 관계 (v0.10) | 1 request = 1 커밋 = 1 run = 1 buildid | **1 studio_id : N buildid** — 실패 시 같은 studio_id 아래 build 회차 누적, 이전 회차 코드·실패 결과를 다음 생성 컨텍스트에 주입 | 반복 개선이 Studio의 핵심 루프 — 이력이 누적되어야 LLM이 앞선 실수를 회피 |
 | push 충돌 감지 (v0.10) | non-FF 거부 + 1회 재시도 | **blob SHA 가드 추가** (§6.5) — 생성 시점 원문 vs push 시점 원격 파일 비교, 다르면 push_conflict | 파일 전체 교체는 git merge 충돌이 발동하지 않음 → 사용자 수정의 조용한 덮어쓰기를 반드시 충돌로 표면화 |
 | 실행 모델 (v0.10) | worker 2 × threads 8 | **worker 1 × threads 16 고정** + 취소 플래그 DB화(builds.cancel_requested) | I/O 대기 중심 워크로드라 스레드로 충분. 프로세스 간 메모리 비공유로 인한 취소 유실·스케줄러 이중 실행 문제를 단일 프로세스로 원천 제거 |
+| 실행 전 리뷰 게이트 (v0.10) | 생성 → 즉시 push/CI | **Step 3.5 작업자 리뷰 게이트** — 승인 후 stage 전달, 승인 모드 선택(매번 확인 기본 / 자동 승인) | runner가 비-ephemeral·네트워크 개방으로 확인됨(§6.4) → 생성 코드가 사람 검토 없이 사내 runner에서 실행되는 경로 차단 |
 
 **신원 원칙 (통일)**: AWS도 GHE도 **사용자 본인 계정**. Bedrock은 device flow,
 GHE는 개인 PAT. 서버는 각 사용자의 자격증명을 암호화 대리 보관할 뿐, 모든 행위는 본인 명의.
@@ -263,7 +264,7 @@ def invoke_claude(user_id, session_id, messages, system):
 
 - `POST /api/studio/message` → ThreadPoolExecutor(8)에 작업 제출, `studio_id` 즉시 반환
   (신규 요구조건이면 studio_id 신규 발급, 반복이면 기존 studio_id 아래 새 build 회차 추가)
-- 상태 전이는 **build 회차 단위**: `generating` → `pushing` → `ci_running` → `pass/fail/cancelled` (DB 기록)
+- 상태 전이는 **build 회차 단위**: `generating` → `awaiting_review`(Step 3.5, 자동 승인 모드면 생략) → `pushing` → `ci_running` → `pass/fail/cancelled` (DB 기록)
   studio 단위 상태는 별도: `open`(반복 중) → `done`(사용자 종료/채택) / `abandoned`
 - 프론트는 `GET /api/studio/status/{studio_id}` 폴링 — 최신 회차 상태 + 회차 이력 반환
 - 요청 취소: `builds.cancel_requested` **DB 컬럼**에 기록 → 작업 스레드가 체크포인트마다
@@ -310,7 +311,7 @@ studios(studio_id PK, session_id→sessions, user_id, repo, branch_name,
 
 builds(build_id PK, studio_id→studios, attempt,   -- studio 내 회차 번호 (1,2,…)
        commit_sha, run_id, buildid,               -- buildid는 stage가 발급
-       status,        -- generating/pushing/push_conflict/ci_running/pass/fail/cancelled
+       status,        -- generating/awaiting_review/pushing/push_conflict/ci_running/pass/fail/cancelled
        cancel_requested,  -- 취소 플래그 (DB 경유 — 재시작/확장 안전, §4.3)
        fail_summary,  -- CI 실패 요약 — 다음 회차 생성 컨텍스트로 주입 (§7.1 Step 5)
        created_at, completed_at)
@@ -390,6 +391,12 @@ Flask(ThreadPool)
 Claude 생성 코드가 self-hosted runner에서 실행됨 → 첨부 문서 내 악성 지시(prompt
 injection) 경유 임의 코드 실행 위험. 대책:
 
+- **실행 전 작업자 리뷰 게이트 (§7.1 Step 3.5, 주 방어선)**: 생성 코드가 runner에서
+  실행되기 전 사람이 리뷰/승인. 자동 승인 모드 선택 시 이 방어선은 꺼짐 — 신뢰 가능한
+  요구조건·첨부만 다룰 때 선택할 것
+- **runner 환경 확인 결과 (2026-07)**: 검증 코드는 매 run GHE에서 새로 checkout(작업
+  폴더는 새것)하나 **runner 시스템 자체는 유지형(비-ephemeral)**, 네트워크 접속 가능.
+  → 시스템 영역 오염·외부 통신이 기술적으로 가능하므로 리뷰 게이트 + 정적 검사가 주 방어선
 - studio-verify.yml은 **secrets 미사용** (environment 분리)
 - Studio 검증 전용 **격리 runner 그룹** (릴리즈 runner와 분리 — 경합 완화 겸용)
 - push 전 정적 검사 게이트: 네트워크 호출/자격증명 접근/시스템 명령 등 위험 패턴 스캔 후 경고
@@ -452,6 +459,12 @@ Step 3. 코드 + testcase 생성 — 신규/수정 구분
     시 push 전 경고 — LLM의 중간 생략/내용 누락 감지. diff 미리보기 UI는 추후(§12.5)
   · 필요 시 사용자가 직접 파일 지정 추가 주입 (옵션)
 
+Step 3.5. 코드 리뷰 게이트 (stage 전달 전) ★
+  · 생성 코드 + testcase를 **작업자가 리뷰 후 승인**해야 Step 4 진입
+  · 승인 모드 선택 (사용자 설정, 단계별): **매번 확인(기본)** / 자동 승인
+  · 자동 승인 모드는 "사람 검토 없이 runner 실행" 경로가 다시 열림을 유의 (§6.4)
+  · 리뷰 화면에서 회차별 diff + 라인 수 급감 경고(회귀 가드)를 함께 표시
+
 Step 4. 본인 브랜치 커밋/push → dispatch → CI race  (§6.2)
 
 Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 누적 반복
@@ -496,6 +509,7 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
 
 - 기존 dashboard.html과 동일 스택 (Vanilla, 빌드도구 없음), CSS/다크테마 공유
 - 구성: 요구조건 입력 + 첨부 / 멀티턴 채팅 뷰 / Step 2 승인 UI /
+  **Step 3.5 코드 리뷰·승인 UI (diff 표시 + 승인 모드 설정)** /
   AWS 연결 배지 + device flow 승인 / **GHE PAT 등록 + 브랜치 설정 화면** /
   studio별 CI 상태 카드(회차별 buildid 이력, run/buildid 링크) / 요청 취소 버튼 /
   관리자: 브랜치 조회 화면
@@ -590,6 +604,7 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
 - [ ] CI 완료 webhook `/api/studio/ci-callback` + 서명 검증
 - [ ] webhook 유실 대비 run_id 기준 폴링 fallback
 - [ ] CI 로그 요약 → 대화 자동 주입 (실패 로그 추출 규칙)
+- [ ] Step 3.5 코드 리뷰 게이트: 생성 파일 diff 표시 + 승인/거부 + 승인 모드 설정(매번 확인 기본/자동 승인) + awaiting_review 상태
 - [ ] push 충돌 처리 (§6.5): 원격 HEAD 기반 커밋 + 1회 재시도 + **blob SHA 가드(조용한 덮어쓰기 차단)** + push_conflict 상태/안내 UI
 - [ ] Step 3 2-pass 구현: 수정 대상 파일 지목 → GHE 원문 fetch → 재호출 (파일 전체 교체 방식) + 라인 수 급감 경고 가드
 - [ ] Bedrock 429 백오프 / push·dispatch 재시도(3회) 에러 처리
