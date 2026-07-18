@@ -610,14 +610,14 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
 
 ### 12.2 Phase 1 — 코어
 
-- [ ] studio.db 스키마 생성 (WAL, busy_timeout, ghe_credentials/user_branch_config 포함) + Fernet 키 관리(600)
-- [ ] AWS SSO device flow 구현 (RegisterClient → StartDeviceAuthorization → CreateToken 폴링 → GetRoleCredentials)
-- [ ] AWS 자격증명 캐시/갱신 + 백그라운드 선제 refresh 스케줄러(만료 30분 전) + 재승인 배너
+- [x] studio.db 스키마 생성 (WAL, busy_timeout, ghe_credentials/user_branch_config 포함) + Fernet 키 관리(600) — `studio/schema.sql`·`db.py`·`crypto.py`, 테스트 통과
+- [ ] AWS SSO device flow 구현 (RegisterClient → StartDeviceAuthorization → CreateToken 폴링 → GetRoleCredentials) — 골격 구현(`studio/aws_sso.py`), 실환경 검증 전
+- [ ] AWS 자격증명 캐시/갱신 + 백그라운드 선제 refresh 스케줄러(만료 30분 전) + 재승인 배너 — 골격 구현, 실환경 검증 전
 - [ ] AWS 연결 온보딩 UI 플로우 (최초 접속 안내 → 승인 링크 → 완료 확인)
-- [ ] `invoke_claude()` 추상화 + requestMetadata + usage 기록
-- [ ] prompt caching 적용 (시스템 프롬프트/분석 md 캐시 블록)
-- [ ] ThreadPoolExecutor 작업 모델 + 상태 전이 + 취소 플래그(builds.cancel_requested, DB 경유)
-- [ ] REST API: POST /message, GET /status/{id}, 세션 목록/재개, 첨부 업로드
+- [ ] `invoke_claude()` 추상화 + requestMetadata + usage 기록 — 구현(`studio/bedrock.py`), 실 Bedrock 호출 검증 전
+- [ ] prompt caching 적용 (시스템 프롬프트/분석 md 캐시 블록) — cachePoint 블록 구현, 실환경 검증 전
+- [x] ThreadPoolExecutor 작업 모델 + 상태 전이 + 취소 플래그(builds.cancel_requested, DB 경유) — `studio/jobs.py`, 테스트 통과
+- [x] REST API: POST /message, GET /status/{id}, 세션 목록/재개, 첨부 업로드 — `studio/app.py`, 테스트 통과 (사용자당 동시 1건 제한 포함)
 - [ ] 문서 파싱 파이프라인 (PDF/DOCX/TXT/MD, 20MB, 청킹)
 - [ ] 멀티턴 히스토리 정책 (최근 N턴 + 요약)
 - [ ] tool ↔ 분석 md 매핑 테이블 + Step 1 자동 로드
@@ -626,7 +626,7 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
 - [ ] ANALYSIS.md 규격 템플릿 + 대상 tool 최소 1개 분석 md 작성
 - [ ] studio.html: 입력/채팅/승인/AWS 배지/취소 (dashboard CSS 공유)
 - [ ] 시스템 프롬프트 초안 (요구조건 생성용 / 코드+testcase 생성용) + prompts 테이블
-- [ ] gunicorn gthread(worker 1 × threads 16) + systemd 반영
+- [ ] gunicorn gthread(worker 1 × threads 16) + systemd 반영 — 설정 파일 작성(`studio/gunicorn.conf.py`, `deploy/toolhub-studio.service`), 서버 반영 대기
 
 ### 12.3 Phase 2 — GHE/CI 연동
 

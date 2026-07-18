@@ -1,0 +1,16 @@
+[Unit]
+Description=ToolHub Studio (Flask/gunicorn, worker 1 x threads 16)
+After=network.target
+
+[Service]
+User=toolhub
+WorkingDirectory=/opt/toolhub
+ExecStart=/opt/toolhub/venv/bin/gunicorn -c studio/gunicorn.conf.py studio.app:app
+Restart=always
+RestartSec=3
+Environment=STUDIO_DB=/opt/toolhub/data/studio.db
+Environment=STUDIO_FERNET_KEY=/opt/toolhub/data/.fernet.key
+Environment=STUDIO_ATTACH_DIR=/opt/toolhub/data/attachments
+
+[Install]
+WantedBy=multi-user.target
