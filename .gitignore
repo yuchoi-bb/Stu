@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+studio/studio.db*
+studio/.fernet.key
+studio/attachments/
