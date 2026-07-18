@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
     display_name TEXT,
     ghe_login    TEXT,
     is_admin     INTEGER NOT NULL DEFAULT 0,
+    auto_approve INTEGER NOT NULL DEFAULT 0,  -- Step 3.5 승인 모드 (0=매번 확인)
     created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -49,6 +50,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     user_id     TEXT NOT NULL REFERENCES users(user_id),
     title       TEXT,
     tool_target TEXT,
+    summary     TEXT,   -- 오래된 턴 요약 (§4.2 멀티턴 히스토리 정책)
     status      TEXT NOT NULL DEFAULT 'active',
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
@@ -74,6 +76,16 @@ CREATE TABLE IF NOT EXISTS attachments (
     created_at       TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Step 2 requirements 초안 (확정 게이트, §7.1) — 승인 시 studio 발급
+CREATE TABLE IF NOT EXISTS requirement_drafts (
+    draft_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES sessions(session_id),
+    content    TEXT,
+    status     TEXT NOT NULL DEFAULT 'generating',
+               -- generating / ready / approved / superseded / failed
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- 확정 requirements 1건에 대한 생성~검증 반복의 단위 (1 studio_id : N builds)
 CREATE TABLE IF NOT EXISTS studios (
     studio_id    TEXT PRIMARY KEY,
@@ -81,6 +93,7 @@ CREATE TABLE IF NOT EXISTS studios (
     user_id      TEXT NOT NULL REFERENCES users(user_id),
     repo         TEXT,
     branch_name  TEXT,
+    requirements TEXT,   -- Step 2 승인본 (생성 근거, 브랜치에도 md로 동반 커밋)
     status       TEXT NOT NULL DEFAULT 'open',
                  -- open(반복 중) / done(종료·채택) / abandoned(포기 또는 재확정 대체)
     created_at   TEXT NOT NULL DEFAULT (datetime('now')),
@@ -103,6 +116,18 @@ CREATE TABLE IF NOT EXISTS builds (
     created_at       TEXT NOT NULL DEFAULT (datetime('now')),
     completed_at     TEXT,
     UNIQUE (studio_id, attempt)
+);
+
+-- Step 3 생성 파일 (파일 전체 교체 방식, Step 3.5 리뷰 대상)
+CREATE TABLE IF NOT EXISTS build_files (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    build_id   INTEGER NOT NULL REFERENCES builds(build_id),
+    path       TEXT NOT NULL,
+    content    TEXT NOT NULL,
+    line_count INTEGER NOT NULL,
+    shrink_warn INTEGER NOT NULL DEFAULT 0,  -- 라인 수 급감 경고 (회귀 가드)
+    base_blob_sha TEXT,   -- 원문 fetch 시점 blob SHA (§6.5 조용한 덮어쓰기 가드)
+    UNIQUE (build_id, path)
 );
 
 CREATE TABLE IF NOT EXISTS usage_log (

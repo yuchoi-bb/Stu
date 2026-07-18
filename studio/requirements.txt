@@ -1,4 +1,5 @@
 flask>=3.0
+requests>=2.31
 gunicorn>=21.0
 boto3>=1.34
 cryptography>=42.0
