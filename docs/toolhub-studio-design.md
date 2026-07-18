@@ -31,7 +31,7 @@
 | 작업 식별자 (v0.10) | `request_id` | **`studio_id`** (전면 개칭) | `stage`의 `buildid` 선례("소유 서비스+id")와 대칭, "request" 중의성 제거, 통합 로그에서 자기설명적 |
 | 작업:검증 관계 (v0.10) | 1 request = 1 커밋 = 1 run = 1 buildid | **1 studio_id : N buildid** — 실패 시 같은 studio_id 아래 build 회차 누적, 이전 회차 코드·실패 결과를 다음 생성 컨텍스트에 주입 | 반복 개선이 Studio의 핵심 루프 — 이력이 누적되어야 LLM이 앞선 실수를 회피 |
 | push 충돌 감지 (v0.10) | non-FF 거부 + 1회 재시도 | **blob SHA 가드 추가** (§6.5) — 생성 시점 원문 vs push 시점 원격 파일 비교, 다르면 push_conflict | 파일 전체 교체는 git merge 충돌이 발동하지 않음 → 사용자 수정의 조용한 덮어쓰기를 반드시 충돌로 표면화 |
-| 실행 모델 (v0.10) | worker 2 × threads 8 고정 | **worker 수 설정값** (기본 1×16) + 멀티 worker 안전 설계 — 취소 플래그 DB화, refresh 스케줄러 별도 systemd 서비스 | worker 간 메모리 비공유로 인한 취소 유실/스케줄러 이중 실행 제거, worker 수를 운영 중 선택 가능하게 |
+| 실행 모델 (v0.10) | worker 2 × threads 8 | **worker 1 × threads 16 고정** + 취소 플래그 DB화(builds.cancel_requested) | I/O 대기 중심 워크로드라 스레드로 충분. 프로세스 간 메모리 비공유로 인한 취소 유실·스케줄러 이중 실행 문제를 단일 프로세스로 원천 제거 |
 
 **신원 원칙 (통일)**: AWS도 GHE도 **사용자 본인 계정**. Bedrock은 device flow,
 GHE는 개인 PAT. 서버는 각 사용자의 자격증명을 암호화 대리 보관할 뿐, 모든 행위는 본인 명의.
@@ -59,7 +59,7 @@ Claude(AWS Bedrock)가 기존 코드 분석 자료(사전 분석 md)를 바탕�
 | Bedrock 호출 신원 | 사용자 본인 AWS SSO (device flow 내장) → CLI와 동일 비용/신원 |
 | GHE 작업 신원 | **사용자 본인 OAuth 토큰** (OAuth App "GitHub 연결", 폴백: PAT) → 본인 명의 커밋 |
 | 프론트엔드 | Vanilla HTML/CSS/JS, `studio.html` (dashboard와 CSS/다크테마 공유) |
-| 백엔드 | Flask + gunicorn(gthread) — **worker 수는 설정값** (기본 1 × threads 16, 멀티 worker 안전 설계로 2×8 전환 가능), khtoolhubw02 |
+| 백엔드 | Flask + gunicorn(gthread, **worker 1 × threads 16 고정**), khtoolhubw02 |
 | DB | SQLite + WAL (studio.db, 기존 CICD DB와 파일 분리) |
 | 장시간 작업 | ThreadPoolExecutor(8) + DB 상태 기록 + REST 폴링 |
 | 브랜치 | 개인 설정 자유 브랜치 (보호 브랜치 대상 지정 금지 가드) |
@@ -267,10 +267,11 @@ def invoke_claude(user_id, session_id, messages, system):
   studio 단위 상태는 별도: `open`(반복 중) → `done`(사용자 종료/채택) / `abandoned`
 - 프론트는 `GET /api/studio/status/{studio_id}` 폴링 — 최신 회차 상태 + 회차 이력 반환
 - 요청 취소: `builds.cancel_requested` **DB 컬럼**에 기록 → 작업 스레드가 체크포인트마다
-  DB 확인. (메모리 플래그 금지 — worker 프로세스 간 메모리 비공유라 취소가 유실됨)
-- **멀티 worker 안전 원칙**: 프로세스 간 공유 상태는 전부 DB 경유.
-  자격증명 refresh 스케줄러는 gunicorn 밖 **별도 systemd 서비스(단일 프로세스)**로 분리
-  → worker 수(기본 1×16, 필요 시 2×8)는 gunicorn 설정값으로 자유 조정, 코드 무변경
+  DB 확인 (메모리 플래그 대신 DB — 재시작 후 상태 일관성, 추후 worker 증설에도 안전)
+- **실행 모델: worker 1 × threads 16 고정.** 워크로드가 I/O 대기(Bedrock/GHE/DB) 중심이라
+  스레드만으로 충분. 단일 프로세스이므로 refresh 스케줄러는 앱 내 백그라운드 스레드
+  1개로 단일 실행 보장 — 별도 프로세스 분리 불필요. worker를 늘리려면 스케줄러
+  단일화(별도 서비스 분리)가 선행 조건임을 명심할 것
 - Celery/Redis 도입 안 함 (동시 작업 ≤7). 서버 재시작 시 진행 중 작업은
   `failed(restart)` 처리 후 재시도 안내
 
@@ -310,7 +311,7 @@ studios(studio_id PK, session_id→sessions, user_id, repo, branch_name,
 builds(build_id PK, studio_id→studios, attempt,   -- studio 내 회차 번호 (1,2,…)
        commit_sha, run_id, buildid,               -- buildid는 stage가 발급
        status,        -- generating/pushing/push_conflict/ci_running/pass/fail/cancelled
-       cancel_requested,  -- 취소 플래그 (DB 경유 — 멀티 worker 안전, §4.3)
+       cancel_requested,  -- 취소 플래그 (DB 경유 — 재시작/확장 안전, §4.3)
        fail_summary,  -- CI 실패 요약 — 다음 회차 생성 컨텍스트로 주입 (§7.1 Step 5)
        created_at, completed_at)
 
@@ -571,8 +572,7 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
 - [ ] ANALYSIS.md 규격 템플릿 + 대상 tool 최소 1개 분석 md 작성
 - [ ] studio.html: 입력/채팅/승인/AWS 배지/취소 (dashboard CSS 공유)
 - [ ] 시스템 프롬프트 초안 (요구조건 생성용 / 코드+testcase 생성용) + prompts 테이블
-- [ ] gunicorn gthread — worker 수 설정화(기본 1×16, 2×8 전환 가능) + systemd 반영
-- [ ] 자격증명 refresh 스케줄러를 별도 systemd 서비스로 분리 (worker 수와 무관하게 단일 실행)
+- [ ] gunicorn gthread(worker 1 × threads 16) + systemd 반영
 
 ### 12.3 Phase 2 — GHE/CI 연동
 
