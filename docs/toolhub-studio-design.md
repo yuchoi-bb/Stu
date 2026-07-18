@@ -618,37 +618,37 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
 - [ ] prompt caching 적용 (시스템 프롬프트/분석 md 캐시 블록) — cachePoint 블록 구현, 실환경 검증 전
 - [x] ThreadPoolExecutor 작업 모델 + 상태 전이 + 취소 플래그(builds.cancel_requested, DB 경유) — `studio/jobs.py`, 테스트 통과
 - [x] REST API: POST /message, GET /status/{id}, 세션 목록/재개, 첨부 업로드 — `studio/app.py`, 테스트 통과 (사용자당 동시 1건 제한 포함)
-- [ ] 문서 파싱 파이프라인 (PDF/DOCX/TXT/MD, 20MB, 청킹)
-- [ ] 멀티턴 히스토리 정책 (최근 N턴 + 요약)
+- [ ] 문서 파싱 파이프라인 (PDF/DOCX/TXT/MD, 20MB, 청킹) — 업로드/저장 구현, 텍스트 추출은 미구현
+- [x] 멀티턴 히스토리 정책 (최근 N턴 + 요약) — `studio/metrics.py` maybe_summarize, 테스트 통과
 - [ ] tool ↔ 분석 md 매핑 테이블 + Step 1 자동 로드
 - [ ] md 기준 SHA vs HEAD 비교 → stale 경고 배지
-- [ ] Step 2 확정 게이트: requirements 초안 → 검토/수정/승인 UI + 상태 전이 + **재확정 경로(Step 5 복귀: 새 studio_id 발급, 기존 abandoned)**
-- [ ] ANALYSIS.md 규격 템플릿 + 대상 tool 최소 1개 분석 md 작성
-- [ ] studio.html: 입력/채팅/승인/AWS 배지/취소 (dashboard CSS 공유)
-- [ ] 시스템 프롬프트 초안 (요구조건 생성용 / 코드+testcase 생성용) + prompts 테이블
+- [x] Step 2 확정 게이트: requirements 초안 → 검토/수정/승인 UI + 상태 전이 + **재확정 경로(Step 5 복귀: 새 studio_id 발급, 기존 abandoned)** — 백엔드+UI, E2E 테스트 통과
+- [ ] ANALYSIS.md 규격 템플릿 + 대상 tool 최소 1개 분석 md 작성 — 템플릿 작성(`docs/analysis-template.md`), 실제 tool 분석은 사내 작업
+- [x] studio.html: 입력/채팅/승인/AWS 배지/취소 — `studio/static/studio.html`, Playwright E2E 통과 (dashboard CSS 공유는 배포 시 적용)
+- [x] 시스템 프롬프트 초안 (요구조건 생성용 / 코드+testcase 생성용) + prompts 테이블 — `studio/prompt_files/`, 버전 시드 포함
 - [ ] gunicorn gthread(worker 1 × threads 16) + systemd 반영 — 설정 파일 작성(`studio/gunicorn.conf.py`, `deploy/toolhub-studio.service`), 서버 반영 대기
 
 ### 12.3 Phase 2 — GHE/CI 연동
 
-- [ ] GHE OAuth App 등록 (관리자 1회) + "GitHub 연결" 버튼 → 승인 → 콜백 → 토큰 획득 플로우 구현
-- [ ] GHE 토큰 암호화 저장 + refresh 자동 갱신 + 401/만료 감지 → 재연결 배너
-- [ ] (폴백) PAT 등록 화면 + 발급 가이드 (OAuth App 불가 시에만 활성화)
-- [ ] 브랜치 설정 화면 (user_branch_config) + **보호 브랜치 지정 금지 가드** + **타 사용자 중복 지정 금지 가드** + 미존재 시 생성 제안
-- [ ] 커밋 생성 로직: author=본인, 메시지 규칙, requirements md 동반 커밋
-- [ ] **workflow 파일 수정 금지 가드** (생성 결과에 .github/workflows 변경 시 push 거부)
+- [ ] GHE OAuth App 등록 (관리자 1회) + "GitHub 연결" 버튼 → 승인 → 콜백 → 토큰 획득 플로우 구현 — 코드 구현(`studio/ghe.py`), App 등록·실환경 검증은 사내 작업
+- [x] GHE 토큰 암호화 저장 + refresh 자동 갱신 + 401/만료 감지 → 재연결 배너
+- [x] (폴백) PAT 등록 화면 + 발급 가이드 — UI 버튼+검증 저장 구현
+- [x] 브랜치 설정 화면 (user_branch_config) + **보호 브랜치 지정 금지 가드** + **타 사용자 중복 지정 금지 가드** — 미존재 시 생성 제안은 미구현
+- [x] 커밋 생성 로직: author=본인, 메시지 규칙, requirements md 동반 커밋 — 로컬 git 테스트 통과
+- [x] **workflow 파일 수정 금지 가드** — 테스트 통과
 - [ ] `studio-verify.yml` 작성: workflow_dispatch(inputs: studio_id/attempt/user) + run-name + concurrency 취소 — **stage 측 파일** (변경 조율 필요)
-- [ ] dispatch 호출 + run-name(studio_id#attempt) 매칭으로 run_id 확보 → builds.run_id 저장
-- [ ] secrets 미사용 environment 분리 + **격리 runner 그룹** 지정
+- [x] dispatch 호출 + run-name(studio_id#attempt) 매칭으로 run_id 확보 → builds.run_id 저장 — HTTP는 mock 검증, 실환경 검증 필요
+- [ ] secrets 미사용 environment 분리 + **격리 runner 그룹** 지정 — stage 측 작업
 - [ ] meta.json에 studio_id/attempt 필드 추가 — **stage 측(Arbiter) 수정** (변경 조율 필요, inputs 경유)
-- [ ] build 회차 모델 구현: 실패 시 attempt+1 생성 + 이전 회차 fail_summary 컨텍스트 누적 주입 (§7.1 Step 5)
-- [ ] CI 완료 webhook `/api/studio/ci-callback` + 서명 검증
-- [ ] webhook 유실 대비 run_id 기준 폴링 fallback
-- [ ] 취소 전파 구현 (§6.2): 사용자 취소 시 run cancel API 호출(stage 중단 시그널) + 새 회차 dispatch 직전 이전 회차 선제 cancelled 마킹
-- [ ] CI 로그 요약 → 대화 자동 주입 (실패 로그 추출 규칙)
-- [ ] Step 3.5 코드 리뷰 게이트: 생성 파일 diff 표시 + 승인/거부 + 승인 모드 설정(매번 확인 기본/자동 승인) + awaiting_review 상태
-- [ ] push 충돌 처리 (§6.5): 원격 HEAD 기반 커밋 + 1회 재시도 + **blob SHA 가드(조용한 덮어쓰기 차단)** + push_conflict 상태/안내 UI
-- [ ] Step 3 2-pass 구현: 수정 대상 파일 지목 → GHE 원문 fetch → 재호출 (파일 전체 교체 방식) + 라인 수 급감 경고 가드
-- [ ] Bedrock 429 백오프 / push·dispatch 재시도(3회) 에러 처리
+- [x] build 회차 모델 구현: 실패 시 attempt+1 생성 + 이전 회차 fail_summary 컨텍스트 누적 주입 (§7.1 Step 5) — 테스트 통과
+- [x] CI 완료 webhook `/api/studio/ci-callback` + 서명 검증 — HMAC, 멱등 처리, 테스트 통과
+- [x] webhook 유실 대비 run_id 기준 폴링 fallback — 폴러 스레드 구현
+- [x] 취소 전파 구현 (§6.2): 사용자 취소 시 run cancel API 호출 + 새 회차 dispatch 직전 이전 회차 선제 cancelled 마킹 — 테스트 통과
+- [x] CI 로그 요약 → 대화 자동 주입 — fail_summary 주입 구현 (stage 측 로그 추출 규칙은 조율 필요)
+- [x] Step 3.5 코드 리뷰 게이트: 생성 파일 표시 + 승인/거부 + 승인 모드 설정 + awaiting_review 상태 — E2E 통과 (diff 뷰는 전체 내용 표시, 원문 대비 diff는 2-pass 후)
+- [x] push 충돌 처리 (§6.5): 원격 HEAD 기반 커밋 + 1회 재시도 + **blob SHA 가드(조용한 덮어쓰기 차단)** + push_conflict 상태/안내 — 테스트 통과
+- [ ] Step 3 2-pass 구현: 수정 대상 파일 지목 → GHE 원문 fetch → 재호출 — fetch_file 헬퍼 구현, pass 1(파일 지목) 루프 미구현. 라인 수 급감 경고는 구현·테스트 통과
+- [x] Bedrock 429 백오프 / 에러 처리 — push·dispatch 자동 재시도(3회)는 미구현(수동 재시도)
 
 ### 12.3.5 Phase 2.5 — 파일럿 (7명 오픈 전 필수)
 
