@@ -4,6 +4,7 @@
 """
 import json
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -15,12 +16,21 @@ from playwright.sync_api import sync_playwright  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 SHOT = os.environ.get("UI_SHOT_DIR", "/tmp")
 
+# 빈 포트를 골라 백그라운드 실행 간 충돌을 원천 차단
+_s = socket.socket()
+_s.bind(("127.0.0.1", 0))
+PORT = _s.getsockname()[1]
+_s.close()
+BASE = f"http://127.0.0.1:{PORT}"
+
+env = dict(os.environ, STUDIO_UI_PORT=str(PORT))
 server = subprocess.Popen([sys.executable, os.path.join(HERE, "ui_server.py")],
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                          env=env)
 try:
-    for _ in range(30):
+    for _ in range(40):
         try:
-            urllib.request.urlopen("http://127.0.0.1:5057/studio", timeout=1)
+            urllib.request.urlopen(f"{BASE}/studio", timeout=1)
             break
         except Exception:
             time.sleep(0.5)
@@ -31,7 +41,7 @@ try:
         page.on("dialog", lambda d: d.accept("테스트 부족합니다")
                 if d.type == "prompt" else d.accept())
 
-        page.goto("http://127.0.0.1:5057/studio")
+        page.goto(f"{BASE}/studio")
         page.click(".new-btn")
         page.wait_for_selector(".sess.active", timeout=8000)
 
@@ -57,7 +67,7 @@ try:
         assert "awaiting_review" in page.locator(".panel").inner_text()
 
         detail = json.loads(urllib.request.urlopen(
-            "http://127.0.0.1:5057/api/studio/sessions/"
+            f"{BASE}/api/studio/sessions/"
             + page.evaluate("state.sid")).read())
         assert detail["studio"]["requirements"].startswith("## R1(수정)")
         print("OK: 사용자 수정본이 승인 requirements로 반영")

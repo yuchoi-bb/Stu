@@ -38,4 +38,5 @@ db.execute("INSERT OR REPLACE INTO user_branch_config (user_id, repo, branch_nam
            "VALUES ('hong','thr','feature/foo')")
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5057)
+    port = int(os.environ.get("STUDIO_UI_PORT", "5057"))
+    app.run(host="127.0.0.1", port=port)
