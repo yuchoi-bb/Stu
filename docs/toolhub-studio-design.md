@@ -33,6 +33,7 @@
 | push 충돌 감지 (v0.10) | non-FF 거부 + 1회 재시도 | **blob SHA 가드 추가** (§6.5) — 생성 시점 원문 vs push 시점 원격 파일 비교, 다르면 push_conflict | 파일 전체 교체는 git merge 충돌이 발동하지 않음 → 사용자 수정의 조용한 덮어쓰기를 반드시 충돌로 표면화 |
 | 실행 모델 (v0.10) | worker 2 × threads 8 | **worker 1 × threads 16 고정** + 취소 플래그 DB화(builds.cancel_requested) | I/O 대기 중심 워크로드라 스레드로 충분. 프로세스 간 메모리 비공유로 인한 취소 유실·스케줄러 이중 실행 문제를 단일 프로세스로 원천 제거 |
 | 실행 전 리뷰 게이트 (v0.10) | 생성 → 즉시 push/CI | **Step 3.5 작업자 리뷰 게이트** — 승인 후 stage 전달, 승인 모드 선택(매번 확인 기본 / 자동 승인) | runner가 비-ephemeral·네트워크 개방으로 확인됨(§6.4) → 생성 코드가 사람 검토 없이 사내 runner에서 실행되는 경로 차단 |
+| 루프 출구 (v0.10) | Step 3↔5 루프만 존재 | **Step 5 → Step 2 복귀 경로** — requirements 재확정 = 새 studio_id 발급, 기존 studio는 abandoned (이력은 새 studio 컨텍스트로 참조) | 요구조건 자체의 결함은 코드 루프로 해결 불가 — studio_id="확정 requirements 1건" 정의의 자연스러운 귀결 |
 
 **신원 원칙 (통일)**: AWS도 GHE도 **사용자 본인 계정**. Bedrock은 device flow,
 GHE는 개인 PAT. 서버는 각 사용자의 자격증명을 암호화 대리 보관할 뿐, 모든 행위는 본인 명의.
@@ -265,7 +266,8 @@ def invoke_claude(user_id, session_id, messages, system):
 - `POST /api/studio/message` → ThreadPoolExecutor(8)에 작업 제출, `studio_id` 즉시 반환
   (신규 요구조건이면 studio_id 신규 발급, 반복이면 기존 studio_id 아래 새 build 회차 추가)
 - 상태 전이는 **build 회차 단위**: `generating` → `awaiting_review`(Step 3.5, 자동 승인 모드면 생략) → `pushing` → `ci_running` → `pass/fail/cancelled` (DB 기록)
-  studio 단위 상태는 별도: `open`(반복 중) → `done`(사용자 종료/채택) / `abandoned`
+  studio 단위 상태는 별도: `open`(반복 중) → `done`(사용자 종료/채택) /
+  `abandoned`(포기 또는 requirements 재확정으로 새 studio_id에 대체됨, §7.1 Step 5 출구)
 - 프론트는 `GET /api/studio/status/{studio_id}` 폴링 — 최신 회차 상태 + 회차 이력 반환
 - 요청 취소: `builds.cancel_requested` **DB 컬럼**에 기록 → 작업 스레드가 체크포인트마다
   DB 확인 (메모리 플래그 대신 DB — 재시작 후 상태 일관성, 추후 worker 증설에도 안전)
@@ -489,6 +491,10 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
   · 이전 회차들의 생성 코드 + CI 실패 요약(fail_summary)을 컨텍스트에 누적 주입
     → LLM이 앞선 실수를 회피, 회차가 갈수록 결과 개선
   · 회차 이력은 builds 테이블에 보존 — 사용자는 회차별 diff/CI 결과 열람 가능
+  · **출구 — 실패 원인이 요구조건 자체로 판명되면 Step 2로 복귀**:
+    requirements 재확정 = **새 studio_id 발급**, 기존 studio는 `abandoned`로 종결
+    (studio_id = "확정 requirements 1건" 정의의 귀결). 이전 studio의 회차·실패
+    이력은 같은 세션에 남아 새 studio의 생성 컨텍스트로 참조
 ```
 
 ### 7.2 분석 md 규격 (ANALYSIS.md 필수 항목)
@@ -599,7 +605,7 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
 - [ ] 멀티턴 히스토리 정책 (최근 N턴 + 요약)
 - [ ] tool ↔ 분석 md 매핑 테이블 + Step 1 자동 로드
 - [ ] md 기준 SHA vs HEAD 비교 → stale 경고 배지
-- [ ] Step 2 확정 게이트: requirements 초안 → 검토/수정/승인 UI + 상태 전이
+- [ ] Step 2 확정 게이트: requirements 초안 → 검토/수정/승인 UI + 상태 전이 + **재확정 경로(Step 5 복귀: 새 studio_id 발급, 기존 abandoned)**
 - [ ] ANALYSIS.md 규격 템플릿 + 대상 tool 최소 1개 분석 md 작성
 - [ ] studio.html: 입력/채팅/승인/AWS 배지/취소 (dashboard CSS 공유)
 - [ ] 시스템 프롬프트 초안 (요구조건 생성용 / 코드+testcase 생성용) + prompts 테이블
