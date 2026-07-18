@@ -26,12 +26,16 @@ def run_requirements_draft(user_id: str, session_id: str, draft_id: int) -> None
         db.execute("UPDATE requirement_drafts SET content=?, status='ready' "
                    "WHERE draft_id=?", (text, draft_id))
     except AwsNotConnected:
-        db.execute("UPDATE requirement_drafts SET status='failed', "
-                   "content='AWS 재연결 필요 (SSO 세션 만료)' WHERE draft_id=?",
-                   (draft_id,))
+        _draft_failed(draft_id, session_id, "AWS 재연결 필요 (SSO 세션 만료)")
     except Exception as e:
-        db.execute("UPDATE requirement_drafts SET status='failed', content=? "
-                   "WHERE draft_id=?", (f"draft error: {e}", draft_id))
+        _draft_failed(draft_id, session_id, f"draft error: {e}")
+
+
+def _draft_failed(draft_id: int, session_id: str, reason: str) -> None:
+    db.execute("UPDATE requirement_drafts SET status='failed', content=? "
+               "WHERE draft_id=?", (reason, draft_id))
+    db.execute("INSERT INTO messages (session_id, role, content) VALUES (?,?,?)",
+               (session_id, "system", f"[requirements 초안 실패] {reason}"))
 
 
 # ---------- Step 3: 생성 ----------

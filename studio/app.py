@@ -32,7 +32,8 @@ _init()
 
 def current_user() -> str:
     """Apache가 넣어주는 REMOTE_USER 헤더 (§3.1). 최초 로그인 시 users 자동 등록."""
-    user_id = request.environ.get("HTTP_X_REMOTE_USER") or request.remote_user
+    user_id = (request.environ.get("HTTP_X_REMOTE_USER") or request.remote_user
+               or os.environ.get("STUDIO_DEV_USER"))   # 개발/테스트 전용 폴백
     if not user_id:
         abort(401, "REMOTE_USER missing — Apache SSO 경유 필요")
     db.execute("INSERT OR IGNORE INTO users (user_id, ad_id) VALUES (?,?)",
@@ -180,6 +181,36 @@ def create_session():
         (session_id, current_user(), body.get("title", "새 작업"),
          body.get("tool_target")))
     return jsonify({"session_id": session_id}), 201
+
+
+@app.get("/api/studio/sessions/<session_id>")
+def session_detail(session_id):
+    """UI 구동용: 세션 + 열린 studio + 최신 draft를 한 번에."""
+    _own_session(session_id)
+    session = db.one("SELECT * FROM sessions WHERE session_id=?", (session_id,))
+    studio = db.one(
+        "SELECT * FROM studios WHERE session_id=? AND status='open' "
+        "ORDER BY created_at DESC LIMIT 1", (session_id,))
+    draft = db.one(
+        "SELECT * FROM requirement_drafts WHERE session_id=? "
+        "AND status IN ('generating','ready') "
+        "ORDER BY draft_id DESC LIMIT 1", (session_id,))
+    builds = []
+    if studio:
+        builds = [dict(b) for b in db.query(
+            "SELECT build_id, attempt, status, buildid, run_id, fail_summary, "
+            "created_at, completed_at FROM builds WHERE studio_id=? ORDER BY attempt",
+            (studio["studio_id"],))]
+    return jsonify({"session": dict(session),
+                    "studio": dict(studio) if studio else None,
+                    "builds": builds,
+                    "draft": dict(draft) if draft else None})
+
+
+@app.get("/studio")
+def studio_page():
+    from flask import send_from_directory
+    return send_from_directory(app.static_folder, "studio.html")
 
 
 @app.get("/api/studio/sessions/<session_id>/messages")
