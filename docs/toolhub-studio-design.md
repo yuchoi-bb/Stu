@@ -372,6 +372,13 @@ Flask(ThreadPool)
  → builds.status 갱신 + CI 로그 요약을 세션 대화에 자동 주입 (fail_summary 저장)
 ```
 
+**이전 회차 장부 정리 (선제 cancelled 마킹):**
+
+- attempt N+1을 dispatch하기 **직전**, 같은 studio의 attempt N이 아직 `ci_running`이면
+  Studio가 먼저 `builds.status=cancelled`로 마킹한다 — concurrency가 이전 run을 자동
+  취소하므로, **취소를 유발한 Studio 자신이 장부도 정리**한다 (화면 "검증 중" 방치 방지)
+- webhook/폴링 fallback은 보정 수단 (GHE 측 취소 통지가 오면 멱등 처리)
+
 **run 추적 (dispatch API는 run id를 반환하지 않음):**
 
 - `run-name`에 studio_id#attempt 포함 (회차까지 있어야 재시도 간 유일) → dispatch 직후
@@ -603,6 +610,7 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
 - [ ] build 회차 모델 구현: 실패 시 attempt+1 생성 + 이전 회차 fail_summary 컨텍스트 누적 주입 (§7.1 Step 5)
 - [ ] CI 완료 webhook `/api/studio/ci-callback` + 서명 검증
 - [ ] webhook 유실 대비 run_id 기준 폴링 fallback
+- [ ] 새 회차 dispatch 직전 이전 회차 선제 cancelled 마킹 (§6.2 장부 정리 규칙)
 - [ ] CI 로그 요약 → 대화 자동 주입 (실패 로그 추출 규칙)
 - [ ] Step 3.5 코드 리뷰 게이트: 생성 파일 diff 표시 + 승인/거부 + 승인 모드 설정(매번 확인 기본/자동 승인) + awaiting_review 상태
 - [ ] push 충돌 처리 (§6.5): 원격 HEAD 기반 커밋 + 1회 재시도 + **blob SHA 가드(조용한 덮어쓰기 차단)** + push_conflict 상태/안내 UI
