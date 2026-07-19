@@ -1,0 +1,81 @@
+# ToolHub Studio 검증 워크플로 — 참조 초안 (§6.2)
+#
+# ⚠️ 이 파일은 stage 측 소유다. studio는 이 워크플로를 workflow_dispatch로 호출만 한다.
+# 실제 배치 위치: 대상 repo의 .github/workflows/studio-verify.yml
+# studio는 .github/workflows/ 를 수정하지 못하므로(§6.3 가드), 이 파일은
+# stage 담당이 검토 후 직접 배치해야 한다. 아래는 studio가 기대하는 계약:
+#   - inputs: studio_id, attempt, user  (dispatch body에서 전달)
+#   - run-name: "studio-{studio_id}#{attempt} ({user})"  (studio의 run_id 매칭 규칙)
+#   - concurrency: 같은 브랜치 재실행 시 이전 run 자동 취소
+#   - meta.json에 studio_id/attempt 기록 (Arbiter 측 수정 필요)
+#   - 완료 후 studio /api/studio/ci-callback 으로 결과 통지 (HMAC 서명)
+
+name: studio-verify
+
+on:
+  workflow_dispatch:
+    inputs:
+      studio_id:
+        description: "Studio 작업 식별자"
+        required: true
+      attempt:
+        description: "회차 번호"
+        required: true
+      user:
+        description: "요청자 (본인 명의)"
+        required: true
+
+run-name: "studio-${{ inputs.studio_id }}#${{ inputs.attempt }} (${{ inputs.user }})"
+
+concurrency:
+  group: studio-${{ github.ref }}
+  cancel-in-progress: true      # 새 회차가 이전 run을 자동 취소 (§6.2)
+
+jobs:
+  verify:
+    # Studio 검증 전용 격리 runner 그룹 (§6.4) — 릴리즈 runner와 분리
+    runs-on: [self-hosted, studio-isolated]
+    # secrets 미사용 (§6.4): environment를 분리하고 secrets를 주입하지 않는다
+    environment: studio-verify
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      # Zone1 Arbiter → Zone2 Build → Zone3 Test (기존 stage 체인 재사용)
+      # meta.json에 studio_id/attempt 기록 (Arbiter 측에서 inputs 경유로 반영)
+      - name: Record studio metadata
+        run: |
+          jq -n \
+            --arg sid "${{ inputs.studio_id }}" \
+            --arg att "${{ inputs.attempt }}" \
+            --arg usr "${{ inputs.user }}" \
+            '{studio_id:$sid, attempt:($att|tonumber), user:$usr}' \
+            > meta.studio.json
+
+      - name: Build & Test (stage 체인 호출)
+        id: verify
+        run: |
+          # stage의 기존 빌드/검증 스크립트 호출 지점.
+          # OS/arch matrix, race 검증 등은 기존 로직 재사용.
+          echo "buildid=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      # 완료 통지 — studio ci-callback (HMAC 서명, §6.2)
+      - name: Notify Studio
+        if: always()
+        env:
+          STUDIO_CI_WEBHOOK_SECRET: ${{ secrets.STUDIO_CI_WEBHOOK_SECRET }}
+          CALLBACK_URL: https://khtoolhubw02/api/studio/ci-callback
+        run: |
+          STATUS=$([ "${{ job.status }}" = "success" ] && echo pass || echo fail)
+          BODY=$(jq -n \
+            --arg sid "${{ inputs.studio_id }}" \
+            --arg att "${{ inputs.attempt }}" \
+            --arg st "$STATUS" \
+            --arg bid "${{ steps.verify.outputs.buildid }}" \
+            '{studio_id:$sid, attempt:($att|tonumber), status:$st, buildid:$bid}')
+          SIG="sha256=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$STUDIO_CI_WEBHOOK_SECRET" | awk '{print $2}')"
+          curl -sf -X POST "$CALLBACK_URL" \
+            -H "Content-Type: application/json" \
+            -H "X-Studio-Signature: $SIG" \
+            -d "$BODY"

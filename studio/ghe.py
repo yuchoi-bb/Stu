@@ -2,11 +2,32 @@
 import datetime as dt
 import hashlib
 import hmac
+import random
 import secrets
 import threading
 import time
 
 import requests
+
+
+def _http_retry(fn, *, tries: int = 3, base: float = 2.0):
+    """네트워크성 실패/5xx에 지수 백오프 재시도 (§11). 4xx는 즉시 반환."""
+    delay = base
+    last = None
+    for attempt in range(tries):
+        try:
+            r = fn()
+            if r.status_code < 500:
+                return r
+            last = RuntimeError(f"HTTP {r.status_code}")
+        except requests.RequestException as e:
+            last = e
+        if attempt < tries - 1:
+            time.sleep(delay + random.uniform(0, 0.5))
+            delay = min(delay * 2, 16)
+    if isinstance(last, Exception):
+        raise last
+    return r
 
 from . import config, crypto, db, jobs
 from .ghe_git import PushConflict, WorkflowGuardViolation, commit_and_push
@@ -246,11 +267,12 @@ def _dispatch(b, token: str) -> None:
     """workflow_dispatch (§6.2). inputs: studio_id/attempt/user."""
     url = (f"{config.GHE_API_URL}/repos/{config.GHE_OWNER}/{b['repo']}"
            f"/actions/workflows/{config.VERIFY_WORKFLOW}/dispatches")
-    r = requests.post(url, headers=_auth_headers(token), timeout=15,
-                      json={"ref": b["branch_name"],
-                            "inputs": {"studio_id": b["studio_id"],
-                                       "attempt": str(b["attempt"]),
-                                       "user": b["ghe_login"] or b["user_id"]}})
+    body = {"ref": b["branch_name"],
+            "inputs": {"studio_id": b["studio_id"],
+                       "attempt": str(b["attempt"]),
+                       "user": b["ghe_login"] or b["user_id"]}}
+    r = _http_retry(lambda: requests.post(url, headers=_auth_headers(token),
+                                          timeout=15, json=body))
     if r.status_code >= 300:
         raise RuntimeError(f"dispatch 실패 ({r.status_code}): {r.text[:200]}")
 
@@ -277,12 +299,35 @@ def _find_run_id(b, token: str, tries: int = 10) -> int | None:
 def cancel_run(user_id: str, repo: str, run_id: int) -> None:
     """stage로 취소 시그널 — 시그널 없이는 빌드/테스트가 멈추지 않는다."""
     token = get_token(user_id)
-    r = requests.post(
+    r = _http_retry(lambda: requests.post(
         f"{config.GHE_API_URL}/repos/{config.GHE_OWNER}/{repo}"
         f"/actions/runs/{run_id}/cancel",
-        headers=_auth_headers(token), timeout=15)
+        headers=_auth_headers(token), timeout=15))
     if r.status_code >= 300:
         raise RuntimeError(f"run cancel 실패 ({r.status_code})")
+
+
+def ensure_branch(user_id: str, repo: str, branch: str, base: str = "main") -> bool:
+    """미존재 브랜치를 base에서 생성 (§6.1). 이미 있으면 False, 생성하면 True."""
+    token = get_token(user_id)
+    exists = requests.get(
+        f"{config.GHE_API_URL}/repos/{config.GHE_OWNER}/{repo}/branches/{branch}",
+        headers=_auth_headers(token), timeout=15)
+    if exists.status_code == 200:
+        return False
+    base_ref = requests.get(
+        f"{config.GHE_API_URL}/repos/{config.GHE_OWNER}/{repo}/git/refs/heads/{base}",
+        headers=_auth_headers(token), timeout=15)
+    if base_ref.status_code != 200:
+        raise RuntimeError(f"base 브랜치 {base} 조회 실패")
+    sha = base_ref.json()["object"]["sha"]
+    r = _http_retry(lambda: requests.post(
+        f"{config.GHE_API_URL}/repos/{config.GHE_OWNER}/{repo}/git/refs",
+        headers=_auth_headers(token), timeout=15,
+        json={"ref": f"refs/heads/{branch}", "sha": sha}))
+    if r.status_code >= 300:
+        raise RuntimeError(f"브랜치 생성 실패 ({r.status_code})")
+    return True
 
 
 # ---------- CI 결과 수신 (§6.2) ----------

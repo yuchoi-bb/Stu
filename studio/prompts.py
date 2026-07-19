@@ -7,7 +7,7 @@ import os
 from . import db
 
 _DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prompt_files")
-NAMES = ("requirements", "generate")
+NAMES = ("requirements", "generate", "select_files")
 
 
 def seed() -> None:

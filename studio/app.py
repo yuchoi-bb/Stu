@@ -128,6 +128,13 @@ def set_branch():
             abort(400, "보호 브랜치는 대상 지정 불가")
     except ghe.GheNotConnected:
         abort(409, "GHE 연결 필요")
+    created = False
+    if body.get("create_if_missing"):
+        try:
+            created = ghe.ensure_branch(user_id, repo, branch,
+                                        body.get("base", "main"))
+        except Exception as e:
+            abort(400, f"브랜치 생성 실패: {e}")
     try:
         db.execute(
             """INSERT INTO user_branch_config (user_id, repo, branch_name)
@@ -137,7 +144,26 @@ def set_branch():
             (user_id, repo, branch))
     except sqlite3.IntegrityError:
         abort(409, "다른 사용자가 이미 지정한 브랜치입니다")
-    return jsonify({"repo": repo, "branch_name": branch})
+    return jsonify({"repo": repo, "branch_name": branch, "created": created})
+
+
+# ---------- 분석 md 매핑 (관리자, §7.1 Step 1) ----------
+
+@app.get("/api/studio/admin/tool-analysis")
+def list_tool_analysis():
+    _require_admin()
+    rows = db.query("SELECT * FROM tool_analysis ORDER BY tool_name")
+    return jsonify([dict(r) for r in rows])
+
+
+@app.post("/api/studio/admin/tool-analysis")
+def set_tool_analysis():
+    _require_admin()
+    from . import analysis
+    body = request.get_json(force=True)
+    analysis.set_mapping(body["tool_name"], body.get("repo") or config.DEFAULT_REPO,
+                         body["md_path"])
+    return jsonify({"ok": True}), 201
 
 
 # ---------- CI 결과 수신 (§6.2) ----------
@@ -494,6 +520,8 @@ def upload_attachment(session_id):
         "INSERT INTO attachments (session_id, filename, mime_type, storage_path) "
         "VALUES (?,?,?,?)",
         (session_id, safe_name, f.mimetype, path))
+    from . import docparse
+    jobs.submit(docparse.process_attachment, attachment_id)   # 비동기 텍스트 추출
     return jsonify({"attachment_id": attachment_id, "filename": safe_name}), 201
 
 

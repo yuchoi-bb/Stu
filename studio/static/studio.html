@@ -129,6 +129,7 @@
       <span class="dot off"></span>AWS</div>
     <div class="badge" id="gheBadge" onclick="openSettings()">
       <span class="dot off"></span>GHE</div>
+    <div class="badge" id="adminBadge" onclick="openAdmin()" style="display:none">📊 관리자</div>
     <div class="badge" onclick="openSettings()">⚙ 설정</div>
   </header>
   <div class="main">
@@ -149,6 +150,16 @@
       </div>
     </section>
     <aside class="panel" id="panel"></aside>
+  </div>
+</div>
+
+<div class="overlay" id="admin">
+  <div class="modal" style="width:560px;max-height:80vh;overflow-y:auto">
+    <h3>관리자 대시보드</h3>
+    <div id="adminBody"></div>
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn" onclick="closeAdmin()">닫기</button>
+    </div>
   </div>
 </div>
 
@@ -236,6 +247,7 @@ function render() {
   renderBadges(); renderSessions(); renderChat(); renderPanel();
 }
 function renderBadges() {
+  $("adminBadge").style.display = state.conn.is_admin ? "" : "none";
   $("awsBadge").innerHTML = `<span class="dot ${state.conn.aws_connected ? "ok" : "off"}"></span>AWS${state.conn.aws_connected ? "" : " 연결"}`;
   $("awsBadge").className = "badge" + (state.conn.aws_connected ? "" : " off");
   const g = state.conn.ghe_connected;
@@ -411,6 +423,33 @@ function openSettings() {
   $("settings").classList.add("show");
 }
 function closeSettings() { $("settings").classList.remove("show"); }
+
+async function openAdmin() {
+  const m = await api("/admin/metrics");
+  const br = await api("/admin/branches");
+  const o = m.overall;
+  const pct = v => v == null ? "—" : (v * 100).toFixed(0) + "%";
+  $("adminBody").innerHTML = `
+    <div class="p-sec"><h5>§10.1 성공 지표</h5>
+      <div class="hint">studio 총 ${o.studios_total}건 ·
+        CI pass 도달률 <b>${pct(o.ci_pass_rate)}</b> ·
+        채택률 <b>${pct(o.adoption_rate)}</b> ·
+        studio당 평균 회차 <b>${(o.avg_attempts_per_studio || 0).toFixed(1)}</b></div>
+      <div class="hint">토큰 in ${o.input_tokens} / out ${o.output_tokens} /
+        cache ${o.cache_read_tokens}</div>
+    </div>
+    <div class="p-sec"><h5>사용자별 미터링</h5>
+      ${m.users.map(u => `<div class="att"><span>${esc(u.user_id)}</span>
+        <span class="bid">in ${u.input_tokens||0} / out ${u.output_tokens||0} /
+        채택 ${u.adopted||0}</span></div>`).join("")}</div>
+    <div class="p-sec"><h5>요청 이력 브랜치 (자동 삭제 없음)</h5>
+      ${br.map(b => `<div class="att"><span>${esc(b.repo)}/${esc(b.branch_name)}</span>
+        <span class="bid">${esc(b.user_id)} ·
+        <span class="chip ${b.last_build_status||''}">${b.last_build_status||'—'}</span></span></div>`).join("")
+        || '<div class="hint">없음</div>'}</div>`;
+  $("admin").classList.add("show");
+}
+function closeAdmin() { $("admin").classList.remove("show"); }
 </script>
 </body>
 </html>

@@ -143,6 +143,15 @@ CREATE TABLE IF NOT EXISTS usage_log (
     created_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- tool ↔ 분석 md 매핑 (§7.1 Step 1). 분석 md는 대상 repo 내 파일 경로로 관리
+CREATE TABLE IF NOT EXISTS tool_analysis (
+    tool_name   TEXT PRIMARY KEY,
+    repo        TEXT NOT NULL,
+    md_path     TEXT NOT NULL,   -- 예: docs/analysis/parser.md
+    base_sha    TEXT,            -- md 상단 기준 커밋 SHA (stale 검사, §7.3)
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS prompts (
     prompt_id  INTEGER PRIMARY KEY AUTOINCREMENT,
     name       TEXT NOT NULL,
