@@ -165,7 +165,12 @@ Apache (khtoolhubw02)
    - (폴백) 연동 불가 시 AD LDAP 직접: `mod_authnz_ldap`
 3. Apache 레이어 일괄 처리 → 4개 서비스 SSO 통일
 4. 인증 후 `REMOTE_USER`(사번/AD ID) 헤더 → Flask/PHP는 헤더만 신뢰
-5. Flask 5000 포트는 localhost 바인딩 유지 (Apache 우회 차단)
+   - 앱은 `X-Remote-User` 헤더를 신원으로 신뢰하므로, **Apache는 클라이언트가 보낸
+     `X-Remote-User`를 반드시 제거 후 `REMOTE_USER`로만 재설정**해야 한다
+     (`RequestHeader unset` → `set`). 안 하면 신원 위장 가능 —
+     `deploy/apache-toolhub-studio.conf.reference`에 명시.
+5. Flask 5000 포트는 localhost 바인딩 유지 (gunicorn `bind=127.0.0.1:5000`) —
+   외부는 Apache 경유만 가능, 직접 접근 차단
 
 **효과**: Knox 세션이 있으면 접속 시 추가 로그인 0회 (Jira/GHE와 동일 UX).
 
@@ -701,7 +706,10 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
 - [x] DB 마이그레이션 (스키마 드리프트 방지): idempotent ALTER TABLE ADD COLUMN — 구버전 studio.db 검증 통과 (`studio/db.py`)
 - [x] 로깅 인프라 (§11): 파일 로깅(RotatingFileHandler) + 백그라운드 루프/에러 핸들러 로깅 — 조용한 예외 삼킴 제거 (`studio/logs.py`)
 - [x] health 엔드포인트 + 디버그 조회 (build 상세/실패 목록/audit) + 운영 CLI (`studio/manage.py`: set-admin/set-branch/map-analysis/show-studio/failures/users/health)
-- [ ] Flask 5000 localhost 바인딩 + Apache 우회 차단 확인
+- [x] Flask 5000 localhost 바인딩 + Apache 우회 차단 — gunicorn `bind=127.0.0.1:5000`
+      (외부 직접 접근 불가), `deploy/apache-toolhub-studio.conf.reference`(SSL·Knox 인증·
+      프록시 + **X-Remote-User 스푸핑 차단**: 클라이언트 헤더 unset 후 REMOTE_USER로만 설정).
+      앱 인증 계약 테스트(`tests/test_auth.py`: 헤더 없으면 401) 통과
 - [x] 위험 패턴 정적 검사 게이트 (push 전 스캔 + 경고) — `studio/scan.py`: 명령실행/
       파괴적 삭제/시크릿/네트워크 유출(high) + 안전하지 않은 역직렬화·TLS(medium) 휴리스틱.
       결과를 builds.scan_findings에 저장·대화 주입·리뷰 카드 표시, **high면 auto_approve여도

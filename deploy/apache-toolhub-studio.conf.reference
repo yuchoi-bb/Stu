@@ -1,0 +1,67 @@
+# ToolHub Studio — Apache 리버스 프록시 참조 설정 (§3.1)
+#
+# 목적:
+#   1) SSL 종료 + Knox SSO 인증 → REMOTE_USER 확보
+#   2) 인증된 사용자만 gunicorn(127.0.0.1:5000)으로 프록시
+#   3) **X-Remote-User 스푸핑 차단** — 앱은 X-Remote-User 헤더를 신뢰하므로,
+#      클라이언트가 직접 보낸 값은 반드시 제거하고 REMOTE_USER로만 설정한다.
+#
+# 전제: gunicorn은 127.0.0.1:5000에만 바인딩(studio/gunicorn.conf.py). 외부는
+#       Apache를 통해서만 접근 가능. 방화벽으로 5000 외부 유입 차단(심층 방어).
+#
+# Knox SSO 프로토콜(SAML/OIDC)은 §12.1 확인 결과에 따라 아래 인증 블록을 택일.
+# 이 파일은 참조용 — 실배포 시 사내 값(ServerName/인증서/IdP 메타데이터)으로 채운다.
+
+<VirtualHost *:443>
+    ServerName studio.toolhub.example
+
+    SSLEngine on
+    SSLCertificateFile      /etc/ssl/certs/toolhub-studio.crt
+    SSLCertificateKeyFile   /etc/ssl/private/toolhub-studio.key
+
+    # ---- 접근 로그: %u(REMOTE_USER) 포함 (§3.1 4개 서비스 공통 규약) ----
+    LogFormat "%h %l %u %t \"%r\" %>s %b service=studio" studio_access
+    CustomLog /var/log/apache2/toolhub-studio-access.log studio_access
+    ErrorLog  /var/log/apache2/toolhub-studio-error.log
+
+    # ================= 인증 (택일) =================
+    # --- (A) SAML: mod_auth_mellon ---
+    # <Location />
+    #     MellonEnable "auth"
+    #     MellonSPMetadataFile   /etc/apache2/mellon/sp-metadata.xml
+    #     MellonIdPMetadataFile  /etc/apache2/mellon/idp-metadata.xml
+    #     MellonEndpointPath     /mellon
+    #     Require valid-user
+    # </Location>
+    #
+    # --- (B) OIDC: mod_auth_openidc ---
+    # OIDCProviderMetadataURL https://knox.example/.well-known/openid-configuration
+    # OIDCClientID     toolhub-studio
+    # OIDCClientSecret <secret>
+    # OIDCRedirectURI  https://studio.toolhub.example/redirect_uri
+    # OIDCCryptoPassphrase <passphrase>
+    # OIDCRemoteUserClaim sub
+    # <Location />
+    #     AuthType openid-connect
+    #     Require valid-user
+    # </Location>
+    # ==============================================
+
+    # ---- 스푸핑 차단: 클라이언트가 보낸 X-Remote-User 제거 후 REMOTE_USER로만 설정 ----
+    # (unset을 먼저 하지 않으면 사용자가 임의 신원으로 위장 가능 — 필수)
+    RequestHeader unset X-Remote-User
+    RequestHeader set   X-Remote-User "expr=%{REMOTE_USER}"
+
+    # ---- 프록시 → gunicorn (localhost 전용) ----
+    ProxyPreserveHost On
+    ProxyPass        / http://127.0.0.1:5000/ retry=0
+    ProxyPassReverse / http://127.0.0.1:5000/
+
+    # OAuth 콜백 등 큰 헤더 여유
+    LimitRequestFieldSize 16384
+</VirtualHost>
+
+# ---- 심층 방어(선택): 5000 직접 접근 차단 방화벽 예시 ----
+#   sudo iptables -A INPUT -p tcp --dport 5000 ! -i lo -j DROP
+#   (gunicorn이 이미 127.0.0.1에만 바인딩하므로 외부 NIC로는 접근 불가.
+#    위 규칙은 동일 호스트 타 네트워크 인터페이스 유입까지 막는 추가 방어)
