@@ -442,9 +442,25 @@ function closeSettings() { $("settings").classList.remove("show"); }
 async function openAdmin() {
   const m = await api("/admin/metrics");
   const br = await api("/admin/branches");
+  const ad = await api("/admin/admins");
   const o = m.overall;
   const pct = v => v == null ? "—" : (v * 100).toFixed(0) + "%";
+  const adminRows = ad.admins.map(u => `<div class="att">
+      <span>${esc(u.user_id)}</span>
+      <span class="bid">${esc(u.ghe_login || "")}
+        <button class="btn" style="padding:2px 6px"
+          onclick="setAdmin('${esc(u.user_id)}', false)">강등</button></span></div>`).join("");
   $("adminBody").innerHTML = `
+    <div class="p-sec"><h5>관리자 (2인 체계 권장)</h5>
+      ${ad.low ? '<div class="hint" style="color:#e0a030">⚠ 관리자가 '
+        + ad.count + '명입니다 — 인수인계·부재 대비 2인 권장</div>' : ''}
+      ${adminRows || '<div class="hint">없음</div>'}
+      <div class="att"><input id="admGrant" placeholder="user_id (로그인 이력 필요)"
+        style="flex:1;background:var(--bg);border:1px solid var(--line);color:inherit;padding:4px 6px;border-radius:4px">
+        <button class="btn" onclick="grantAdmin()">관리자 지정</button></div>
+      <div class="hint">권한: 미터링·브랜치·audit 조회 + 분석 md 매핑 + 관리자 지정.
+        타 사용자 브랜치·작업은 변경하지 않음(소유권 존중)</div>
+    </div>`  + `
     <div class="p-sec"><h5>§10.1 성공 지표</h5>
       <div class="hint">studio 총 ${o.studios_total}건 ·
         CI pass 도달률 <b>${pct(o.ci_pass_rate)}</b> ·
@@ -463,6 +479,16 @@ async function openAdmin() {
         <span class="chip ${b.last_build_status||''}">${b.last_build_status||'—'}</span></span></div>`).join("")
         || '<div class="hint">없음</div>'}</div>`;
   $("admin").classList.add("show");
+}
+async function setAdmin(userId, isAdmin) {
+  if (!isAdmin && !confirm(`${userId} 관리자 권한을 해제할까요?`)) return;
+  try { await post("/admin/admins", {user_id: userId, is_admin: isAdmin}); }
+  catch (e) { alert(e.message); return; }
+  await openAdmin();
+}
+async function grantAdmin() {
+  const uid = $("admGrant").value.trim(); if (!uid) return;
+  await setAdmin(uid, true);
 }
 function closeAdmin() { $("admin").classList.remove("show"); }
 </script>

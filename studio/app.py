@@ -99,16 +99,22 @@ def connections():
                   "WHERE user_id=?", (user_id,))
     branch = db.one("SELECT repo, branch_name FROM user_branch_config "
                     "WHERE user_id=?", (user_id,))
-    return jsonify({
+    is_admin = bool(user["is_admin"]) if user else False
+    resp = {
         "user_id": user_id,
         "aws_connected": bool(aws and aws["expires_at"]),
         "ghe_connected": bool(ghe_row),
         "ghe_auth_type": ghe_row["auth_type"] if ghe_row else None,
         "ghe_login": user["ghe_login"] if user else None,
         "auto_approve": bool(user["auto_approve"]) if user else False,
-        "is_admin": bool(user["is_admin"]) if user else False,
+        "is_admin": is_admin,
         "branch": dict(branch) if branch else None,
-    })
+    }
+    if is_admin:   # 2인 체계 권장 경고 노출 (관리자에게만)
+        n = _admin_count()
+        resp["admin_count"] = n
+        resp["low_admin_warning"] = n < 2
+    return jsonify(resp)
 
 
 # ---------- 브랜치 설정 (§6.1) ----------
@@ -649,6 +655,47 @@ def _require_admin():
     row = db.one("SELECT is_admin FROM users WHERE user_id=?", (current_user(),))
     if not row or not row["is_admin"]:
         abort(403, "관리자 전용")
+
+
+def _admin_count() -> int:
+    return db.one("SELECT COUNT(*) AS n FROM users WHERE is_admin=1")["n"]
+
+
+# ---------- 관리자 롤 (2인 체계 권장, §12.1) ----------
+
+@app.get("/api/studio/admin/admins")
+def list_admins():
+    """현재 관리자 목록 + 2인 권장 경고 플래그."""
+    _require_admin()
+    rows = db.query("SELECT user_id, ghe_login, display_name FROM users "
+                    "WHERE is_admin=1 ORDER BY user_id")
+    return jsonify({"admins": [dict(r) for r in rows], "count": len(rows),
+                    "recommend": 2, "low": len(rows) < 2})
+
+
+@app.post("/api/studio/admin/admins")
+def set_admin_role():
+    """관리자 승격/강등 (관리자만). 마지막 관리자 강등은 금지 — 0명 락아웃 방지.
+    관리자 권한은 조회 + 운영쓰기(analysis 매핑/관리자 지정)까지이며, 타 사용자
+    브랜치·작업은 건드리지 않는다(소유권 존중)."""
+    _require_admin()
+    body = request.get_json(force=True)
+    target = (body.get("user_id") or "").strip()
+    make_admin = bool(body.get("is_admin"))
+    if not target:
+        abort(400, "user_id 필요")
+    row = db.one("SELECT is_admin FROM users WHERE user_id=?", (target,))
+    if row is None:
+        abort(404, "해당 사용자가 아직 로그인한 적 없음 (users 미등록)")
+    if not make_admin and row["is_admin"] and _admin_count() <= 1:
+        abort(409, "마지막 관리자는 강등할 수 없습니다 (최소 1인 유지)")
+    db.execute("UPDATE users SET is_admin=? WHERE user_id=?",
+               (1 if make_admin else 0, target))
+    from . import audit
+    audit.record(current_user(),
+                 "grant_admin" if make_admin else "revoke_admin", target, "ok")
+    return jsonify({"user_id": target, "is_admin": make_admin,
+                    "admin_count": _admin_count()})
 
 
 # ---------- 첨부 (§8) ----------

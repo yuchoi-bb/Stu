@@ -2,7 +2,8 @@
 
 사용:
   python -m studio.manage health
-  python -m studio.manage set-admin <user_id> [--off]
+  python -m studio.manage set-admin <user_id> [--off]   # 마지막 관리자 강등 금지
+  python -m studio.manage admins                        # 관리자 목록 + 2인 권장 경고
   python -m studio.manage set-branch <user_id> <repo> <branch>
   python -m studio.manage map-analysis <tool> <repo> <md_path>
   python -m studio.manage show-studio <studio_id>
@@ -37,12 +38,33 @@ def cmd_health(_):
           db.one("SELECT COUNT(*) AS n FROM builds WHERE status='ci_running'")["n"])
 
 
+def _admin_count() -> int:
+    return db.one("SELECT COUNT(*) AS n FROM users WHERE is_admin=1")["n"]
+
+
 def cmd_set_admin(a):
     val = 0 if a.off else 1
+    if a.off:
+        # 마지막 관리자 강등 금지 (0명 락아웃 방지) — 부트스트랩 경로도 동일 가드
+        cur = db.one("SELECT is_admin FROM users WHERE user_id=?", (a.user_id,))
+        if cur and cur["is_admin"] and _admin_count() <= 1:
+            print("마지막 관리자는 강등할 수 없습니다 (최소 1인 유지)", file=sys.stderr)
+            sys.exit(1)
     db.execute("INSERT INTO users (user_id, is_admin) VALUES (?, ?) "
                "ON CONFLICT(user_id) DO UPDATE SET is_admin=?", (a.user_id, val, val))
-    audit.record(a.user_id, "set_admin", a.user_id, str(val))
-    print(f"{a.user_id} is_admin={val}")
+    audit.record("cli", "grant_admin" if val else "revoke_admin", a.user_id, "ok")
+    n = _admin_count()
+    warn = "  ⚠ 관리자 1명 — 2인 체계 권장" if n < 2 else ""
+    print(f"{a.user_id} is_admin={val} (총 관리자 {n}명){warn}")
+
+
+def cmd_admins(_):
+    rows = db.query("SELECT user_id, ghe_login FROM users WHERE is_admin=1 "
+                    "ORDER BY user_id")
+    for r in rows:
+        print(f"{r['user_id']:20} ghe={r['ghe_login'] or '-'}")
+    n = len(rows)
+    print(f"— 총 {n}명" + ("  ⚠ 2인 체계 권장 (현재 부족)" if n < 2 else ""))
 
 
 def cmd_set_branch(a):
@@ -128,6 +150,7 @@ def main(argv=None):
     sp.add_argument("--user"); sp.set_defaults(fn=cmd_audit)
 
     sub.add_parser("users").set_defaults(fn=cmd_users)
+    sub.add_parser("admins").set_defaults(fn=cmd_admins)
 
     args = p.parse_args(argv)
     _init()
