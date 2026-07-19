@@ -39,8 +39,13 @@ def commit_and_push(remote_url: str, branch: str, files: dict[str, str],
                     author_name: str, author_email: str,
                     commit_message: str, *,
                     guard_exempt: set[str] | None = None,
-                    _retry: bool = True) -> str:
-    """원격 HEAD 기반 커밋 생성 + push (§6.5). 반환: commit SHA.
+                    _retry: bool = True) -> tuple[str, dict[str, str | None]]:
+    """원격 HEAD 기반 커밋 생성 + push (§6.5).
+
+    반환: (commit SHA, {path: 커밋된 실제 blob SHA}).
+    두 번째 값은 git이 정규화까지 적용한 **실제** blob SHA다 — 다음 회차의 base로
+    이 값을 쓰면 원시 바이트 계산과 git 정규화 사이의 불일치로 인한 false
+    push_conflict를 방지한다 (§6.5).
 
     guard_exempt: blob SHA 가드 예외 경로 (studio 소유 파일 — requirements md 등,
     studio 자신만 쓰는 파일이라 회차 간 재커밋이 정상).
@@ -91,9 +96,11 @@ def commit_and_push(remote_url: str, branch: str, files: dict[str, str],
                 shutil.rmtree(tmp, ignore_errors=True)
                 return commit_and_push(remote_url, branch, files, base_blobs,
                                        author_name, author_email,
-                                       commit_message, _retry=False)
+                                       commit_message, guard_exempt=guard_exempt,
+                                       _retry=False)
             raise PushConflict(f"push 거부 (non-fast-forward): {r.stderr.strip()}")
-        return sha
+        pushed = {path: blob_sha_at_head(tmp, path) for path in files}
+        return sha, pushed
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

@@ -183,25 +183,27 @@ def run_push(build_id: int) -> None:
         token = get_token(b["user_id"])
 
         # D: 새 회차 dispatch 직전, 이전 회차가 ci_running이면 선제 cancelled 마킹 (§6.2)
-        _cancel_superseded(studio_id, b["attempt"], b["user_id"])
+        _cancel_superseded(studio_id, b["attempt"], b["user_id"], b["repo"])
 
         files = {r["path"]: r["content"] for r in db.query(
             "SELECT path, content FROM build_files WHERE build_id=?", (build_id,))}
         base_blobs = {r["path"]: r["base_blob_sha"] for r in db.query(
             "SELECT path, base_blob_sha FROM build_files WHERE build_id=?",
             (build_id,))}
-        # base 폴백: 2-pass fetch 기록이 없으면 같은 studio의 직전 회차 생성본을
-        # base로 사용 — "원격 = 우리가 마지막으로 push한 내용"일 때만 통과 (§6.5)
+        # base 폴백: 2-pass fetch 기록이 없으면 같은 studio의 직전 회차가 실제로
+        # push한 git blob SHA를 base로 사용 — 원시 계산 대신 git 정규화까지 반영된
+        # 실제 값이라 정규화 불일치로 인한 false push_conflict가 없다 (§6.5)
         for path in files:
             if base_blobs.get(path) is None:
                 prev = db.one(
-                    """SELECT bf.content FROM build_files bf
+                    """SELECT bf.pushed_blob_sha FROM build_files bf
                        JOIN builds x ON x.build_id=bf.build_id
                        WHERE x.studio_id=? AND bf.path=? AND x.attempt < ?
+                             AND bf.pushed_blob_sha IS NOT NULL
                        ORDER BY x.attempt DESC LIMIT 1""",
                     (studio_id, path, b["attempt"]))
                 if prev:
-                    base_blobs[path] = _blob_sha_of(prev["content"])
+                    base_blobs[path] = prev["pushed_blob_sha"]
         # 확정 requirements md 동반 커밋 (§6.3) — studio 소유 파일이라 가드 예외
         req_path = f"docs/studio/{studio_id}-requirements.md"
         files[req_path] = b["requirements"] or ""
@@ -209,12 +211,15 @@ def run_push(build_id: int) -> None:
         message = (f"[studio] id={studio_id} attempt={b['attempt']} "
                    f"session={session_id}\n\nToolHub Studio 생성 커밋")
         author = b["ghe_login"] or b["ad_id"] or b["user_id"]
-        sha = commit_and_push(
+        sha, pushed = commit_and_push(
             remote_url(b["repo"], token), b["branch_name"], files, base_blobs,
             author, f"{author}@users.noreply.{config.GHE_BASE_URL.split('://')[1]}",
             message, guard_exempt={req_path})
         db.execute("UPDATE builds SET commit_sha=? WHERE build_id=?",
                    (sha, build_id))
+        for path, blob in pushed.items():   # 다음 회차 base로 쓸 실제 blob SHA 기록
+            db.execute("UPDATE build_files SET pushed_blob_sha=? "
+                       "WHERE build_id=? AND path=?", (blob, build_id, path))
 
         _dispatch(b, token)
         jobs.set_build_status(build_id, "ci_running")
@@ -241,13 +246,8 @@ def run_push(build_id: int) -> None:
                               fail_summary=f"push error: {e}")
 
 
-def _blob_sha_of(content: str) -> str:
-    """git blob SHA-1 (원격 접근 없이 로컬 계산)."""
-    data = content.encode()
-    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
-
-
-def _cancel_superseded(studio_id: str, attempt: int, user_id: str) -> None:
+def _cancel_superseded(studio_id: str, attempt: int, user_id: str,
+                       repo: str) -> None:
     rows = db.query(
         "SELECT build_id, run_id FROM builds "
         "WHERE studio_id=? AND attempt<? AND status='ci_running'",
@@ -256,9 +256,7 @@ def _cancel_superseded(studio_id: str, attempt: int, user_id: str) -> None:
         jobs.set_build_status(r["build_id"], "cancelled", completed=True)
         if r["run_id"]:
             try:
-                cancel_run(user_id, db.one(
-                    "SELECT repo FROM studios WHERE studio_id=?",
-                    (studio_id,))["repo"], r["run_id"])
+                cancel_run(user_id, repo, r["run_id"])
             except Exception:
                 pass   # concurrency가 어차피 취소 — 시그널은 best effort
 
@@ -350,10 +348,18 @@ def apply_ci_result(studio_id: str, attempt: int, status: str,
         return True   # 이미 종결 — 멱등
     if status not in ("pass", "fail", "cancelled"):
         return False
-    db.execute("UPDATE builds SET status=?, buildid=?, "
-               "fail_summary=COALESCE(?, fail_summary), "
-               "completed_at=datetime('now') WHERE build_id=?",
-               (status, buildid, fail_summary, b["build_id"]))
+    # 원자적 전이: ci_running일 때만 UPDATE — webhook과 폴러가 동시에 처리해도
+    # 정확히 한 번만 성공해 메시지 중복 주입을 막는다 (§6.2)
+    conn = db.get_conn()
+    cur = conn.execute(
+        "UPDATE builds SET status=?, buildid=?, "
+        "fail_summary=COALESCE(?, fail_summary), "
+        "completed_at=datetime('now') "
+        "WHERE build_id=? AND status='ci_running'",
+        (status, buildid, fail_summary, b["build_id"]))
+    conn.commit()
+    if cur.rowcount != 1:
+        return True   # 다른 경로가 먼저 종결 — 멱등, 중복 주입 안 함
     s = db.one("SELECT session_id FROM studios WHERE studio_id=?", (studio_id,))
     if s:
         text = (f"[CI] {studio_id} attempt {attempt}: {status}"

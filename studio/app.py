@@ -5,6 +5,7 @@
 - 상태: 모든 공유 상태는 DB 경유 (builds.cancel_requested 등)
 """
 import os
+import threading
 import uuid
 
 from flask import Flask, abort, jsonify, request
@@ -14,6 +15,11 @@ from .aws_sso import poll_device_flow, start_device_flow, start_refresh_schedule
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = config.ATTACH_MAX_BYTES
+
+# 새 회차 제출 임계 구역 보호 (worker 1 단일 프로세스이므로 프로세스 락으로 충분).
+# 동시성 한도 체크→build INSERT, draft 승인 전이가 원자적으로 직렬화되어
+# TOCTOU 경합(동시 2건 생성·이중 승인)을 막는다.
+_submit_lock = threading.Lock()
 
 
 def _init() -> None:
@@ -128,13 +134,8 @@ def set_branch():
             abort(400, "보호 브랜치는 대상 지정 불가")
     except ghe.GheNotConnected:
         abort(409, "GHE 연결 필요")
-    created = False
-    if body.get("create_if_missing"):
-        try:
-            created = ghe.ensure_branch(user_id, repo, branch,
-                                        body.get("base", "main"))
-        except Exception as e:
-            abort(400, f"브랜치 생성 실패: {e}")
+    # DB 예약을 먼저 — 중복 지정이면 여기서 거부되어 원격 브랜치를 만들지 않는다
+    # (부작용이 가드보다 먼저 실행돼 고아 브랜치가 남는 문제 방지)
     try:
         db.execute(
             """INSERT INTO user_branch_config (user_id, repo, branch_name)
@@ -144,6 +145,13 @@ def set_branch():
             (user_id, repo, branch))
     except sqlite3.IntegrityError:
         abort(409, "다른 사용자가 이미 지정한 브랜치입니다")
+    created = False
+    if body.get("create_if_missing"):
+        try:
+            created = ghe.ensure_branch(user_id, repo, branch,
+                                        body.get("base", "main"))
+        except Exception as e:
+            abort(400, f"브랜치 생성 실패: {e}")
     return jsonify({"repo": repo, "branch_name": branch, "created": created})
 
 
@@ -296,29 +304,35 @@ def approve_requirements(draft_id):
         abort(404)
     if draft["status"] != "ready":
         abort(409, f"승인 불가 상태: {draft['status']}")
-    if jobs.active_count_for_user(user_id) >= config.MAX_CONCURRENT_PER_USER:
-        abort(409, "동시 진행 작업 한도 초과 (사용자당 1건)")
 
     session_id = draft["session_id"]
     requirements = body.get("content") or draft["content"]   # 사용자 수정본 우선
 
-    db.execute("UPDATE studios SET status='abandoned', "
-               "completed_at=datetime('now') "
-               "WHERE session_id=? AND status='open'", (session_id,))
-    db.execute("UPDATE requirement_drafts SET status='approved', content=? "
-               "WHERE draft_id=?", (requirements, draft_id))
-
-    branch = db.one("SELECT repo, branch_name FROM user_branch_config "
-                    "WHERE user_id=?", (user_id,))
-    studio_id = f"ST-{uuid.uuid4().hex[:8]}"
-    db.execute(
-        "INSERT INTO studios (studio_id, session_id, user_id, repo, branch_name, "
-        "requirements) VALUES (?,?,?,?,?,?)",
-        (studio_id, session_id, user_id,
-         branch["repo"] if branch else config.DEFAULT_REPO,
-         branch["branch_name"] if branch else None, requirements))
-    build_id = db.execute("INSERT INTO builds (studio_id, attempt) VALUES (?,1)",
-                          (studio_id,))
+    with _submit_lock:
+        if jobs.active_count_for_user(user_id) >= config.MAX_CONCURRENT_PER_USER:
+            abort(409, "동시 진행 작업 한도 초과 (사용자당 1건)")
+        # 원자적 승인 전이 — 동시 이중 승인 시 한 번만 통과 (ready→approved)
+        conn = db.get_conn()
+        cur = conn.execute(
+            "UPDATE requirement_drafts SET status='approved', content=? "
+            "WHERE draft_id=? AND status='ready'", (requirements, draft_id))
+        conn.commit()
+        if cur.rowcount != 1:
+            abort(409, "이미 처리된 draft")
+        db.execute("UPDATE studios SET status='abandoned', "
+                   "completed_at=datetime('now') "
+                   "WHERE session_id=? AND status='open'", (session_id,))
+        branch = db.one("SELECT repo, branch_name FROM user_branch_config "
+                        "WHERE user_id=?", (user_id,))
+        studio_id = f"ST-{uuid.uuid4().hex[:8]}"
+        db.execute(
+            "INSERT INTO studios (studio_id, session_id, user_id, repo, branch_name, "
+            "requirements) VALUES (?,?,?,?,?,?)",
+            (studio_id, session_id, user_id,
+             branch["repo"] if branch else config.DEFAULT_REPO,
+             branch["branch_name"] if branch else None, requirements))
+        build_id = db.execute("INSERT INTO builds (studio_id, attempt) VALUES (?,1)",
+                              (studio_id,))
 
     from .pipeline import run_generation
     jobs.submit(run_generation, user_id, session_id, studio_id, build_id)
@@ -354,16 +368,16 @@ def post_message():
         else:
             jobs.request_cancel(prev["build_id"])
 
-    if jobs.active_count_for_user(user_id) >= config.MAX_CONCURRENT_PER_USER:
-        abort(409, "동시 진행 작업 한도 초과 (사용자당 1건)")
-
-    db.execute("INSERT INTO messages (session_id, role, content) VALUES (?,?,?)",
-               (session_id, "user", body["content"]))
-    row = db.one("SELECT MAX(attempt) AS a FROM builds WHERE studio_id=?",
-                 (studio_id,))
-    attempt = (row["a"] or 0) + 1
-    build_id = db.execute("INSERT INTO builds (studio_id, attempt) VALUES (?,?)",
-                          (studio_id, attempt))
+    with _submit_lock:
+        if jobs.active_count_for_user(user_id) >= config.MAX_CONCURRENT_PER_USER:
+            abort(409, "동시 진행 작업 한도 초과 (사용자당 1건)")
+        db.execute("INSERT INTO messages (session_id, role, content) VALUES (?,?,?)",
+                   (session_id, "user", body["content"]))
+        row = db.one("SELECT MAX(attempt) AS a FROM builds WHERE studio_id=?",
+                     (studio_id,))
+        attempt = (row["a"] or 0) + 1
+        build_id = db.execute("INSERT INTO builds (studio_id, attempt) VALUES (?,?)",
+                              (studio_id, attempt))
 
     from . import metrics
     from .pipeline import run_generation
@@ -514,12 +528,15 @@ def upload_attachment(session_id):
     dest = os.path.join(config.ATTACH_DIR, session_id)
     os.makedirs(dest, exist_ok=True)
     safe_name = os.path.basename(f.filename or "unnamed")
-    path = os.path.join(dest, safe_name)
-    f.save(path)
+    # attachment_id를 저장 파일명에 접두 — 동명 첨부가 서로 덮어쓰지 않도록
     attachment_id = db.execute(
         "INSERT INTO attachments (session_id, filename, mime_type, storage_path) "
         "VALUES (?,?,?,?)",
-        (session_id, safe_name, f.mimetype, path))
+        (session_id, safe_name, f.mimetype, ""))
+    path = os.path.join(dest, f"{attachment_id}_{safe_name}")
+    f.save(path)
+    db.execute("UPDATE attachments SET storage_path=? WHERE attachment_id=?",
+               (path, attachment_id))
     from . import docparse
     jobs.submit(docparse.process_attachment, attachment_id)   # 비동기 텍스트 추출
     return jsonify({"attachment_id": attachment_id, "filename": safe_name}), 201
