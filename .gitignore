@@ -3,3 +3,4 @@ __pycache__/
 studio/studio.db*
 studio/.fernet.key
 studio/attachments/
+studio/logs/

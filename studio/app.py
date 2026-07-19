@@ -10,7 +10,7 @@ import uuid
 
 from flask import Flask, abort, jsonify, request
 
-from . import config, crypto, db, jobs, prompts
+from . import config, crypto, db, jobs, logs, prompts
 from .aws_sso import poll_device_flow, start_device_flow, start_refresh_scheduler
 
 app = Flask(__name__)
@@ -23,6 +23,7 @@ _submit_lock = threading.Lock()
 
 
 def _init() -> None:
+    logs.setup()
     db.init_db()
     crypto.ensure_key()
     prompts.seed()
@@ -188,7 +189,75 @@ def ci_callback():
                              body.get("fail_summary"))
     if not ok:
         abort(400, "적용 불가 (studio/attempt 불일치 또는 잘못된 status)")
+    from . import audit
+    audit.record(None, "ci_result",
+                 f"{body['studio_id']}#{body['attempt']}", body["status"])
     return jsonify({"ok": True})
+
+
+# ---------- health / 디버그 조회 (운영·모니터링) ----------
+
+@app.get("/api/studio/health")
+def health():
+    """DB·스케줄러·디스크 점검. 모니터링/로드밸런서용 (인증 불필요)."""
+    import shutil
+    checks = {}
+    try:
+        db.one("SELECT 1")
+        checks["db"] = "ok"
+    except Exception as e:
+        checks["db"] = f"error: {e}"
+    alive = {t.name for t in threading.enumerate()}
+    checks["refresh_scheduler"] = "ok" if "aws-refresh" in alive else "down"
+    checks["ci_poller"] = "ok" if "ci-poll" in alive else "down"
+    try:
+        free = shutil.disk_usage(config.BASE_DIR).free
+        checks["disk_free_mb"] = free // (1024 * 1024)
+        checks["disk"] = "ok" if free > 100 * 1024 * 1024 else "low"
+    except Exception as e:
+        checks["disk"] = f"error: {e}"
+    healthy = checks["db"] == "ok" and checks.get("disk") != "low"
+    return jsonify({"status": "ok" if healthy else "degraded", "checks": checks}), \
+        (200 if healthy else 503)
+
+
+@app.get("/api/studio/admin/builds/<int:build_id>")
+def admin_build_detail(build_id):
+    """build 전체 상세 — 타임라인·파일·usage·에러 추적 (관리자 디버그)."""
+    _require_admin()
+    b = db.one("SELECT * FROM builds WHERE build_id=?", (build_id,))
+    if b is None:
+        abort(404)
+    files = db.query("SELECT path, line_count, shrink_warn, base_blob_sha, "
+                     "pushed_blob_sha FROM build_files WHERE build_id=?", (build_id,))
+    usage = db.query("SELECT input_tokens, output_tokens, cache_read_tokens, "
+                     "model_id, created_at FROM usage_log WHERE build_id=?",
+                     (build_id,))
+    return jsonify({"build": dict(b),
+                    "files": [dict(f) for f in files],
+                    "usage": [dict(u) for u in usage]})
+
+
+@app.get("/api/studio/admin/failures")
+def admin_failures():
+    """최근 실패/충돌 회차 목록 — 왜 실패했나 한눈에 (관리자 디버그)."""
+    _require_admin()
+    rows = db.query(
+        """SELECT b.build_id, b.studio_id, b.attempt, b.status, b.fail_summary,
+                  b.completed_at, s.user_id, s.repo, s.branch_name
+           FROM builds b JOIN studios s ON s.studio_id=b.studio_id
+           WHERE b.status IN ('fail','push_conflict')
+           ORDER BY b.completed_at DESC LIMIT 100""")
+    return jsonify([dict(r) for r in rows])
+
+
+@app.get("/api/studio/admin/audit")
+def admin_audit():
+    """행위 로그 조회 (§3.1.1, 관리자)."""
+    _require_admin()
+    from . import audit
+    return jsonify(audit.recent(int(request.args.get("limit", 200)),
+                                request.args.get("user_id")))
 
 
 # ---------- 세션 ----------
@@ -334,6 +403,8 @@ def approve_requirements(draft_id):
         build_id = db.execute("INSERT INTO builds (studio_id, attempt) VALUES (?,1)",
                               (studio_id,))
 
+    from . import audit
+    audit.record(user_id, "requirements_approve", studio_id, "ok")
     from .pipeline import run_generation
     jobs.submit(run_generation, user_id, session_id, studio_id, build_id)
     return jsonify({"studio_id": studio_id, "build_id": build_id, "attempt": 1}), 201
@@ -418,8 +489,10 @@ def review_build(build_id):
         abort(409, f"리뷰 대기 상태가 아님: {row['status']}")
     body = request.get_json(force=True)
     action = body.get("action")
+    from . import audit
     if action == "approve":
         jobs.set_build_status(build_id, "pushing")
+        audit.record(current_user(), "review_approve", f"build={build_id}", "ok")
         from .ghe import submit_push
         submit_push(build_id)
         return jsonify({"status": "pushing"})
@@ -427,6 +500,8 @@ def review_build(build_id):
         reason = body.get("reason", "작업자 리뷰 거부")
         jobs.set_build_status(build_id, "fail", completed=True,
                               fail_summary=f"리뷰 거부: {reason}")
+        audit.record(current_user(), "review_reject", f"build={build_id}",
+                     "rejected", reason)
         return jsonify({"status": "rejected"})
     abort(400, "action은 approve 또는 reject")
 
@@ -480,8 +555,10 @@ def cancel_build(build_id):
         try:
             ghe.cancel_run(row["user_id"], row["repo"], row["run_id"])
         except Exception:
-            pass   # 폴링 fallback이 최종 상태를 보정
+            logs.get("app").warning("cancel signal failed run=%s", row["run_id"])
         jobs.set_build_status(build_id, "cancelled", completed=True)
+    from . import audit
+    audit.record(current_user(), "cancel", f"build={build_id}", "ok")
     return jsonify({"status": "cancel_requested"})
 
 

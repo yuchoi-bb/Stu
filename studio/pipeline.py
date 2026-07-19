@@ -6,8 +6,10 @@ Step 4~5(push/CI)는 ghe 모듈이 담당.
 """
 import re
 
-from . import db, jobs, prompts
+from . import db, jobs, logs, prompts
 from .bedrock import AwsNotConnected, invoke_claude, response_text
+
+_log = logs.get("pipeline")
 
 FILE_BLOCK_RE = re.compile(r"```file:(?P<path>[^\n]+)\n(?P<body>.*?)```", re.DOTALL)
 PATHS_BLOCK_RE = re.compile(r"```paths\n(?P<body>.*?)```", re.DOTALL)
@@ -99,6 +101,7 @@ def run_generation(user_id: str, session_id: str, studio_id: str,
     except jobs.Cancelled:
         raise
     except Exception as e:
+        _log.exception("generation failed studio=%s build=%s", studio_id, build_id)
         jobs.set_build_status(build_id, "fail", completed=True,
                               fail_summary=f"generation error: {e}")
 

@@ -4,6 +4,8 @@ import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 DB_PATH = os.environ.get("STUDIO_DB", os.path.join(BASE_DIR, "studio.db"))
+LOG_DIR = os.environ.get("STUDIO_LOG_DIR", os.path.join(BASE_DIR, "logs"))
+LOG_LEVEL = os.environ.get("STUDIO_LOG_LEVEL", "INFO")
 FERNET_KEY_PATH = os.environ.get("STUDIO_FERNET_KEY",
                                  os.path.join(BASE_DIR, ".fernet.key"))
 ATTACH_DIR = os.environ.get("STUDIO_ATTACH_DIR", os.path.join(BASE_DIR, "attachments"))

@@ -153,6 +153,20 @@ CREATE TABLE IF NOT EXISTS tool_analysis (
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- 행위 로그 (§3.1.1) — 4개 서비스 공통 규약: (user_id, service, action, target,
+-- result, timestamp). service는 항상 'studio'.
+CREATE TABLE IF NOT EXISTS action_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    TEXT,
+    service    TEXT NOT NULL DEFAULT 'studio',
+    action     TEXT NOT NULL,
+    target     TEXT,
+    result     TEXT,
+    detail     TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_action_log_time ON action_log(created_at);
+
 CREATE TABLE IF NOT EXISTS prompts (
     prompt_id  INTEGER PRIMARY KEY AUTOINCREMENT,
     name       TEXT NOT NULL,

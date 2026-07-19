@@ -9,6 +9,10 @@ import time
 
 import requests
 
+from . import logs
+
+_log = logs.get("ghe")
+
 
 def _http_retry(fn, *, tries: int = 3, base: float = 2.0):
     """네트워크성 실패/5xx에 지수 백오프 재시도 (§11). 4xx는 즉시 반환."""
@@ -223,6 +227,11 @@ def run_push(build_id: int) -> None:
 
         _dispatch(b, token)
         jobs.set_build_status(build_id, "ci_running")
+        _log.info("pushed+dispatched studio=%s attempt=%s commit=%s",
+                  studio_id, b["attempt"], sha[:10])
+        from . import audit
+        audit.record(b["user_id"], "push_dispatch",
+                     f"{studio_id}#{b['attempt']}", "ci_running", sha[:10])
         run_id = _find_run_id(b, token)
         if run_id:
             db.execute("UPDATE builds SET run_id=? WHERE build_id=?",
@@ -242,6 +251,7 @@ def run_push(build_id: int) -> None:
     except jobs.Cancelled:
         raise
     except Exception as e:
+        _log.exception("run_push failed build=%s studio=%s", build_id, studio_id)
         jobs.set_build_status(build_id, "fail", completed=True,
                               fail_summary=f"push error: {e}")
 
@@ -396,13 +406,15 @@ def _poll_loop() -> None:
                         concl = resp.get("conclusion")
                         status = {"success": "pass", "cancelled": "cancelled"}.get(
                             concl, "fail")
-                        apply_ci_result(r["studio_id"], r["attempt"], status,
-                                        None, None if status == "pass"
-                                        else f"CI conclusion: {concl}")
+                        if apply_ci_result(r["studio_id"], r["attempt"], status,
+                                           None, None if status == "pass"
+                                           else f"CI conclusion: {concl}"):
+                            _log.info("ci poll resolved studio=%s attempt=%s -> %s",
+                                      r["studio_id"], r["attempt"], status)
                 except Exception:
-                    pass
+                    _log.warning("ci poll error run=%s", r["run_id"])
         except Exception:
-            pass
+            _log.exception("ci poll loop error")
         time.sleep(config.CI_POLL_INTERVAL_SEC)
 
 

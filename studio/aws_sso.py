@@ -10,6 +10,10 @@ import time
 
 import boto3
 
+from . import logs
+
+_log = logs.get("aws_sso")
+
 from . import config, crypto, db
 
 _lock = threading.Lock()
@@ -130,10 +134,13 @@ def _refresh_loop() -> None:
                     try:
                         _issue_role_credentials(
                             row["user_id"], crypto.decrypt(row["refresh_token_enc"]))
+                        _log.info("aws creds refreshed for %s", row["user_id"])
                     except Exception:
-                        pass   # SSO 세션 만료 → 사용자에게 재승인 배너 (get이 None 반환)
+                        # SSO 세션 만료 → 사용자에게 재승인 배너 (get이 None 반환)
+                        _log.warning("aws refresh failed for %s (재승인 필요)",
+                                     row["user_id"])
         except Exception:
-            pass
+            _log.exception("aws refresh loop error")
         time.sleep(300)
 
 

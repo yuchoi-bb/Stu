@@ -665,7 +665,10 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
   - [ ] **4개 서비스(Studio/CICD dashboard/Release/SignTool) SSO 통일 적용**
   - [ ] 테스트 계정 로그인/권한 검증
 - [ ] Apache LogFormat에 `%u`(REMOTE_USER) 추가 — 4개 서비스 접근 로그 + logrotate 보존 정책
-- [ ] 행위 로그 공통 규약 적용: CICD/Release/SignTool에 행위 테이블 추가 `(user_id, service, action, target, result, timestamp)`
+- [x] 행위 로그 공통 규약 적용 (studio): `action_log` 테이블 + `studio/audit.py` + 승인/리뷰/취소/push/ci 기록 + 관리자 조회 — CICD/Release/SignTool 확대는 각 서비스 작업
+- [x] DB 마이그레이션 (스키마 드리프트 방지): idempotent ALTER TABLE ADD COLUMN — 구버전 studio.db 검증 통과 (`studio/db.py`)
+- [x] 로깅 인프라 (§11): 파일 로깅(RotatingFileHandler) + 백그라운드 루프/에러 핸들러 로깅 — 조용한 예외 삼킴 제거 (`studio/logs.py`)
+- [x] health 엔드포인트 + 디버그 조회 (build 상세/실패 목록/audit) + 운영 CLI (`studio/manage.py`: set-admin/set-branch/map-analysis/show-studio/failures/users/health)
 - [ ] Flask 5000 localhost 바인딩 + Apache 우회 차단 확인
 - [ ] 위험 패턴 정적 검사 게이트 (push 전 스캔 + 경고)
 - [ ] 관리자 브랜치 조회 화면 (요청 이력 브랜치 + 마지막 커밋일 + CI 상태)

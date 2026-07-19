@@ -1,7 +1,9 @@
 """장시간 작업 모델 (§4.3): ThreadPoolExecutor(8) + DB 상태 기록 + 취소 체크포인트."""
 from concurrent.futures import ThreadPoolExecutor
 
-from . import config, db
+from . import config, db, logs
+
+log = logs.get("jobs")
 
 _executor = ThreadPoolExecutor(max_workers=config.EXECUTOR_WORKERS,
                                thread_name_prefix="studio-job")
@@ -21,8 +23,7 @@ def _run_safely(fn, *args, **kwargs) -> None:
     except Cancelled:
         pass
     except Exception:
-        import logging
-        logging.exception("studio job failed")
+        log.exception("studio job failed: %s", getattr(fn, "__name__", fn))
 
 
 def set_build_status(build_id: int, status: str, *, fail_summary: str | None = None,
