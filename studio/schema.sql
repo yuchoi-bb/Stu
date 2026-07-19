@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS builds (
                      -- / ci_running / pass / fail / cancelled
     cancel_requested INTEGER NOT NULL DEFAULT 0,   -- 취소 플래그 (DB 경유, §4.3)
     fail_summary     TEXT,                  -- CI 실패 요약 → 다음 회차 컨텍스트 주입
+    scan_findings    TEXT,                  -- 위험 패턴 정적 검사 결과 JSON (§12.4)
     created_at       TEXT NOT NULL DEFAULT (datetime('now')),
     completed_at     TEXT,
     UNIQUE (studio_id, attempt)

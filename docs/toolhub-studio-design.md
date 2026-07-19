@@ -511,6 +511,9 @@ Step 3.5. 코드 리뷰 게이트 (stage 전달 전) ★
   · 승인 모드 선택 (사용자 설정, 단계별): **매번 확인(기본)** / 자동 승인
   · 자동 승인 모드는 "사람 검토 없이 runner 실행" 경로가 다시 열림을 유의 (§6.4)
   · 리뷰 화면에서 회차별 diff + 라인 수 급감 경고(회귀 가드)를 함께 표시
+  · **위험 패턴 정적 검사(§12.4)**: 생성 파일을 push 전 스캔해 리뷰 카드에 표시.
+    high(명령실행/시크릿/파괴적 조작/네트워크 유출)가 있으면 auto_approve여도
+    자동 승인을 보류하고 사람 검토를 강제 (마지막 안전망)
 
 Step 4. 본인 브랜치 커밋/push → dispatch → CI race  (§6.2)
 
@@ -699,7 +702,10 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
 - [x] 로깅 인프라 (§11): 파일 로깅(RotatingFileHandler) + 백그라운드 루프/에러 핸들러 로깅 — 조용한 예외 삼킴 제거 (`studio/logs.py`)
 - [x] health 엔드포인트 + 디버그 조회 (build 상세/실패 목록/audit) + 운영 CLI (`studio/manage.py`: set-admin/set-branch/map-analysis/show-studio/failures/users/health)
 - [ ] Flask 5000 localhost 바인딩 + Apache 우회 차단 확인
-- [ ] 위험 패턴 정적 검사 게이트 (push 전 스캔 + 경고)
+- [x] 위험 패턴 정적 검사 게이트 (push 전 스캔 + 경고) — `studio/scan.py`: 명령실행/
+      파괴적 삭제/시크릿/네트워크 유출(high) + 안전하지 않은 역직렬화·TLS(medium) 휴리스틱.
+      결과를 builds.scan_findings에 저장·대화 주입·리뷰 카드 표시, **high면 auto_approve여도
+      사람 검토 강제**(§6.4). 테스트 통과
 - [ ] 관리자 브랜치 조회 화면 (요청 이력 브랜치 + 마지막 커밋일 + CI 상태)
 - [ ] 사용자별 미터링 조회 화면 (usage_log 집계 + §10.1 성공 지표 표시)
 - [ ] 운영 문서 작성 (장애 대응, 토큰 문제 해결, 백업 복구) + 관리자 2인 인수인계

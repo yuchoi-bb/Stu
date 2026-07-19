@@ -19,6 +19,7 @@ DRAFT = ("## R1. 출력 내림 처리\n- floor, 소수 3자리 기준\n\n"
          "## 확인 필요\n- 음수 입력의 내림 방향?\n")
 GEN = ("변경 요약: R1 반영, floor3 도입\n"
        "```file:src/parser.c\n#include \"parser.h\"\n"
+       "  system(\"echo build\");\n"   # 정적 검사(§12.4) high 유발 — 리뷰 카드 확인용
        + "double floor3(double v) { return floor(v * 1000) / 1000; }\n" * 20
        + "```\n"
        "```file:test/test_parser.c\nTEST(floor3_basic) { ... }\n```\n")

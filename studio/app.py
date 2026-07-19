@@ -493,11 +493,24 @@ def studio_status(studio_id):
 
 @app.get("/api/studio/builds/<int:build_id>/files")
 def build_files(build_id):
-    _own_build(build_id)
+    b = _own_build(build_id)
     rows = db.query(
         "SELECT path, content, line_count, shrink_warn FROM build_files "
         "WHERE build_id=? ORDER BY path", (build_id,))
-    return jsonify([dict(r) for r in rows])
+    # 위험 패턴 정적 검사 결과(§12.4)를 파일별로 붙여 리뷰 카드에 노출
+    import json as _json
+    by_path = {}
+    try:
+        for f in _json.loads(b["scan_findings"] or "[]"):
+            by_path.setdefault(f["path"], []).append(f)
+    except (ValueError, TypeError):
+        pass
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["scan"] = by_path.get(r["path"], [])
+        out.append(d)
+    return jsonify(out)
 
 
 @app.post("/api/studio/builds/<int:build_id>/review")

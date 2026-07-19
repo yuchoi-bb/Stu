@@ -63,6 +63,12 @@ try:
         page.screenshot(path=f"{SHOT}/ui_step35.png")
         print("OK: Step 3.5 리뷰 카드 + 파일 탭 전환", tabs)
 
+        # 정적 검사 게이트(§12.4): parser.c에 system() → high 경고 표시
+        page.locator(".ftab").nth(0).click()
+        page.wait_for_selector(".warnbar >> text=위험 패턴", timeout=8000)
+        assert page.locator(".scan.high").count() >= 1
+        print("OK: 정적 검사 — high 위험 패턴 경고 + 스캔 항목 표시")
+
         assert page.locator(".p-id").inner_text().startswith("ST-")
         assert "awaiting_review" in page.locator(".panel").inner_text()
 

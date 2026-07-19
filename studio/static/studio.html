@@ -86,6 +86,11 @@
            color:var(--warn);border-bottom:1px solid var(--line)}
   .filebody{font-family:var(--mono);font-size:12px;white-space:pre;
             overflow:auto;max-height:260px;padding:10px 14px;color:#c8cede}
+  .scanbox{border-bottom:1px solid var(--line);max-height:150px;overflow:auto}
+  .scan{padding:5px 14px;font-size:11.5px;border-left:3px solid var(--line)}
+  .scan.high{border-left-color:#d05050;background:rgba(208,80,80,.08)}
+  .scan.medium{border-left-color:var(--warn);background:rgba(224,166,60,.06)}
+  .scan code{display:block;font-family:var(--mono);color:#9aa3b2;margin-top:2px}
   .inputbar{border-top:1px solid var(--line);padding:12px 20px;background:var(--bg2)}
   .lock-note{font-size:11.5px;color:var(--warn);margin-bottom:6px}
   .inputbox{display:flex;gap:10px;align-items:flex-end}
@@ -302,14 +307,28 @@ function draftCard(d) {
 function reviewCard() {
   const files = state.reviewFiles;
   const warn = files.some(f => f.shrink_warn);
+  const scanOf = f => (f.scan || []);
+  const hiFile = f => scanOf(f).some(s => s.severity === "high");
+  const anyHigh = files.some(hiFile);
+  const anyScan = files.some(f => scanOf(f).length);
+  const mark = f => (hiFile(f) ? " ⛔" : scanOf(f).length ? " ⚠" : "")
+                  + (f.shrink_warn ? " ↓" : "");
   const tabs = files.map((f, i) => `<div class="ftab ${i === state.activeTab ? "active" : ""}"
-      onclick="state.activeTab=${i};lastSig=null;render()">${esc(f.path)}${f.shrink_warn ? " ⚠" : ""}</div>`).join("");
+      onclick="state.activeTab=${i};lastSig=null;render()">${esc(f.path)}${mark(f)}</div>`).join("");
   const cur = files[state.activeTab] || files[0];
+  const curScan = scanOf(cur);
+  const scanList = curScan.length ? `<div class="scanbox">${curScan.map(s =>
+      `<div class="scan ${s.severity}"><b>${s.severity === "high" ? "⛔" : "⚠"} ${esc(s.rule)}</b>
+        <span>:${s.line}</span> ${esc(s.message)}
+        <code>${esc(s.snippet)}</code></div>`).join("")}</div>` : "";
   return `<div class="card"><div class="head"><span class="step">STEP 3.5</span>
     코드 리뷰 게이트 — stage 전달 전
     <span style="margin-left:auto;color:var(--warn);font-size:11.5px">승인 대기</span></div>
     <div class="ftabs">${tabs}</div>
+    ${anyHigh ? `<div class="warnbar" style="background:#5a1f1f">⛔ 정적 검사: 위험 패턴(high) 발견 — push 전 반드시 확인하세요 (자동 승인 보류됨)</div>`
+      : anyScan ? `<div class="warnbar">⚠ 정적 검사: 확인 권장 항목이 있습니다 (파일 탭 참고)</div>` : ""}
     ${warn ? `<div class="warnbar">⚠ 회귀 경고: 라인 수가 직전 회차 대비 급감한 파일이 있습니다 — 내용 누락 확인</div>` : ""}
+    ${scanList}
     <div class="filebody">${esc(cur ? cur.content : "")}</div>
     <div class="foot">
       <button class="btn danger" onclick="reviewBuild('reject')">거부 (사유)</button>

@@ -88,9 +88,21 @@ def run_generation(user_id: str, session_id: str, studio_id: str,
             return
         store_build_files(build_id, studio_id, files, base_blobs)
 
-        # Step 3.5 리뷰 게이트 — 자동 승인 모드면 생략 (§7.1)
+        # 위험 패턴 정적 검사 게이트 (§12.4) — 결과 저장 + 대화 주입
+        from . import scan
+        import json as _json
+        findings = scan.scan_files(files)
+        db.execute("UPDATE builds SET scan_findings=? WHERE build_id=?",
+                   (_json.dumps(findings, ensure_ascii=False), build_id))
+        has_high = any(f["severity"] == "high" for f in findings)
+        if findings:
+            db.execute("INSERT INTO messages (session_id, role, content) "
+                       "VALUES (?,?,?)", (session_id, "system", scan.summarize(findings)))
+
+        # Step 3.5 리뷰 게이트 — 자동 승인 모드면 생략 (§7.1).
+        # 단, 정적 검사 high가 있으면 auto_approve여도 사람 검토를 강제한다 (§6.4/§12.4).
         user = db.one("SELECT auto_approve FROM users WHERE user_id=?", (user_id,))
-        if user and user["auto_approve"]:
+        if user and user["auto_approve"] and not has_high:
             jobs.set_build_status(build_id, "pushing")
             # push/dispatch는 ghe 모듈이 이어받음 (Phase 2 연결 지점)
         else:
