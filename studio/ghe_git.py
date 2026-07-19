@@ -8,9 +8,18 @@
 - non-fast-forward: 1회 재시도(재clone) 후에도 실패하면 push_conflict.
 """
 import os
+import re
 import shutil
 import subprocess
 import tempfile
+
+# remote_url에는 토큰이 박혀 있다(https://x-access-token:TOKEN@host/...). git 오류
+# 메시지·stderr가 fail_summary→DB·대화·Bedrock으로 흘러가므로 자격증명을 가린다.
+_CRED_RE = re.compile(r"(https?://)[^/@\s]*@")
+
+
+def _redact(s: str) -> str:
+    return _CRED_RE.sub(r"\1***@", s)
 
 
 class PushConflict(Exception):
@@ -21,10 +30,23 @@ class WorkflowGuardViolation(Exception):
     pass
 
 
+class UnsafePath(Exception):
+    """repo 밖을 가리키는 경로 (절대경로/상위 탈출) — 임의 파일 읽기·쓰기 차단."""
+
+
+def is_unsafe_path(path: str) -> bool:
+    """LLM이 만든 경로가 repo 밖(절대경로/`..` 탈출)을 가리키는지 판정.
+    os.path.join(tmp, path)에서 절대경로는 tmp를 무시하고, `..`는 tmp를 벗어난다."""
+    if not path or os.path.isabs(path):
+        return True
+    norm = os.path.normpath(path)
+    return norm == "." or norm == ".." or norm.startswith(".." + os.sep)
+
+
 def _git(cwd, *args) -> str:
     r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
     if r.returncode != 0:
-        raise RuntimeError(f"git {' '.join(args)}: {r.stderr.strip()}")
+        raise RuntimeError(_redact(f"git {' '.join(args)}: {r.stderr.strip()}"))
     return r.stdout.strip()
 
 
@@ -52,8 +74,10 @@ def commit_and_push(remote_url: str, branch: str, files: dict[str, str],
     """
     guard_exempt = guard_exempt or set()
     for path in files:
+        if is_unsafe_path(path):     # 절대경로/상위 탈출 → repo 밖 임의 쓰기 차단
+            raise UnsafePath(path)
         norm = os.path.normpath(path)
-        if norm.startswith(".github" + os.sep + "workflows") or norm.startswith(".."):
+        if norm.startswith(".github" + os.sep + "workflows"):
             raise WorkflowGuardViolation(path)
 
     tmp = tempfile.mkdtemp(prefix="studio-git-")
@@ -98,7 +122,8 @@ def commit_and_push(remote_url: str, branch: str, files: dict[str, str],
                                        author_name, author_email,
                                        commit_message, guard_exempt=guard_exempt,
                                        _retry=False)
-            raise PushConflict(f"push 거부 (non-fast-forward): {r.stderr.strip()}")
+            raise PushConflict(
+                _redact(f"push 거부 (non-fast-forward): {r.stderr.strip()}"))
         pushed = {path: blob_sha_at_head(tmp, path) for path in files}
         return sha, pushed
     finally:
@@ -106,7 +131,13 @@ def commit_and_push(remote_url: str, branch: str, files: dict[str, str],
 
 
 def fetch_file(remote_url: str, branch: str, path: str) -> tuple[str, str] | None:
-    """Step 3 pass 2: 원문 fetch — (content, blob_sha) 반환, 없으면 None."""
+    """Step 3 pass 2: 원문 fetch — (content, blob_sha) 반환, 없으면 None.
+
+    path는 pass-1 LLM 출력이라 신뢰 불가 — 절대경로/상위 탈출이면 clone 밖의
+    임의 파일(예: .fernet.key)을 읽어 컨텍스트에 주입할 수 있으므로 차단한다.
+    """
+    if is_unsafe_path(path):
+        raise UnsafePath(path)
     tmp = tempfile.mkdtemp(prefix="studio-fetch-")
     try:
         _git(None, "clone", "--branch", branch, "--single-branch",

@@ -443,6 +443,21 @@ injection) 경유 임의 코드 실행 위험. 대책:
 - workflow 파일 수정 금지 가드 (§6.3)
 - runner egress는 기존 인트라넷 프록시 정책 유지
 
+**6.4.1 서버 측 경로/자격증명 방어선 (보안 리뷰 2026-07 반영)**
+
+생성 코드가 runner에서 실행되기 전에, Studio 서버 자체를 노리는 경로도 막는다.
+
+- **경로 탈출 차단(임의 파일 읽기/쓰기)**: LLM이 지정한 파일 경로(pass-1 수정 대상,
+  생성 파일 블록)는 신뢰 불가. `os.path.join(tmp, path)`에서 **절대경로는 tmp를
+  무시**하고 `..`는 tmp를 벗어난다 → `fetch_file`이 서버의 `.fernet.key`·`studio.db`
+  등을 읽어 LLM 컨텍스트/사용자 화면으로 유출하거나, `commit_and_push`가 `/etc/...`에
+  임의 파일을 쓸 수 있다. `ghe_git.is_unsafe_path`로 절대경로·상위 탈출을 읽기/쓰기
+  양쪽에서 거부(`UnsafePath`). fetch(읽기)는 clone 전에 차단된다.
+- **자격증명 마스킹**: git remote URL에는 토큰이 박힌다
+  (`https://x-access-token:TOKEN@…`). clone/push 실패 시 그 오류가
+  `fail_summary`→DB·대화·Bedrock으로 흘러가 평문 노출되므로, git 오류 메시지의
+  자격증명을 `***@`로 마스킹한다(`_redact`). (저장 토큰은 §5 Fernet 암호화)
+
 ### 6.5 push 충돌 정책 (자유 브랜치의 필연 시나리오)
 
 사용자 설정 브랜치는 로컬 작업에도 쓰일 수 있어 **non-fast-forward 충돌**이 발생한다.

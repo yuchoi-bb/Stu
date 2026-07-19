@@ -173,7 +173,11 @@ def _fetch_originals(user_id, studio, analysis_ctx, session_id, studio_id,
         remote = ghe.remote_url(studio["repo"], token)
         originals, blobs = {}, {}
         for path in paths:
-            got = ghe_git.fetch_file(remote, studio["branch_name"], path)
+            try:
+                got = ghe_git.fetch_file(remote, studio["branch_name"], path)
+            except ghe_git.UnsafePath:
+                _log.warning("unsafe pass-1 경로 무시: %s", path)   # 임의 파일 읽기 차단
+                continue
             if got:
                 originals[path], blobs[path] = got
         return originals, blobs

@@ -34,7 +34,8 @@ def _http_retry(fn, *, tries: int = 3, base: float = 2.0):
     return r
 
 from . import config, crypto, db, jobs
-from .ghe_git import PushConflict, WorkflowGuardViolation, commit_and_push
+from .ghe_git import (PushConflict, UnsafePath, WorkflowGuardViolation,
+                      commit_and_push)
 
 _oauth_states: dict[str, str] = {}   # state -> user_id (단일 프로세스, worker 1)
 
@@ -245,6 +246,10 @@ def run_push(build_id: int) -> None:
         if run_id:
             db.execute("UPDATE builds SET run_id=? WHERE build_id=?",
                        (run_id, build_id))
+    except UnsafePath as e:
+        jobs.set_build_status(build_id, "fail", completed=True,
+                              fail_summary=f"안전하지 않은 파일 경로 차단 "
+                                           f"(절대경로/상위 탈출): {e}")
     except WorkflowGuardViolation as e:
         jobs.set_build_status(build_id, "fail", completed=True,
                               fail_summary=f"workflow 파일 수정 금지 가드: {e}")
