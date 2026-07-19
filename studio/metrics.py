@@ -2,6 +2,11 @@
 from . import config, db, prompts
 
 
+def admin_count() -> int:
+    """현재 관리자 수 (§3.1.2). 락아웃/2인 권장 판단의 단일 소스."""
+    return db.one("SELECT COUNT(*) AS n FROM users WHERE is_admin=1")["n"]
+
+
 def user_metrics() -> list[dict]:
     """사용자별 토큰 소비 + §10.1 지표."""
     rows = db.query(

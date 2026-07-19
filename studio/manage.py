@@ -39,22 +39,19 @@ def cmd_health(_):
           db.one("SELECT COUNT(*) AS n FROM builds WHERE status='ci_running'")["n"])
 
 
-def _admin_count() -> int:
-    return db.one("SELECT COUNT(*) AS n FROM users WHERE is_admin=1")["n"]
-
-
 def cmd_set_admin(a):
+    from . import metrics
     val = 0 if a.off else 1
     if a.off:
         # 마지막 관리자 강등 금지 (0명 락아웃 방지) — 부트스트랩 경로도 동일 가드
         cur = db.one("SELECT is_admin FROM users WHERE user_id=?", (a.user_id,))
-        if cur and cur["is_admin"] and _admin_count() <= 1:
+        if cur and cur["is_admin"] and metrics.admin_count() <= 1:
             print("마지막 관리자는 강등할 수 없습니다 (최소 1인 유지)", file=sys.stderr)
             sys.exit(1)
     db.execute("INSERT INTO users (user_id, is_admin) VALUES (?, ?) "
                "ON CONFLICT(user_id) DO UPDATE SET is_admin=?", (a.user_id, val, val))
     audit.record("cli", "grant_admin" if val else "revoke_admin", a.user_id, "ok")
-    n = _admin_count()
+    n = metrics.admin_count()
     warn = "  ⚠ 관리자 1명 — 2인 체계 권장" if n < 2 else ""
     print(f"{a.user_id} is_admin={val} (총 관리자 {n}명){warn}")
 

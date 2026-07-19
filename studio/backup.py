@@ -60,7 +60,8 @@ def run_backup(dest_dir: str | None = None,
     retention_days = (config.BACKUP_RETENTION_DAYS
                       if retention_days is None else retention_days)
     os.makedirs(dest_dir, exist_ok=True)
-    ts = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    # 밀리초까지 포함 — 같은 초에 수동+타이머가 겹쳐도 파일이 덮어써지지 않는다
+    ts = dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:-3]
 
     db_out = os.path.join(dest_dir, f"studio-{ts}.db")
     if os.path.isfile(config.DB_PATH):

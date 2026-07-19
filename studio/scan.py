@@ -19,12 +19,14 @@ _RAW_RULES = [
      r"subprocess\.(?:call|run|Popen|check_output|check_call)\([^)]*shell\s*=\s*True",
      "subprocess shell=True — 셸 인젝션 위험"),
     ("os-system", "high", r"\bos\.system\s*\(", "os.system — 셸 명령 실행"),
-    ("py-eval-exec", "high", r"\b(?:eval|exec)\s*\(", "eval/exec — 임의 코드 실행"),
+    ("py-eval-exec", "high", r"(?<![\w.])(?:eval|exec)\s*\(",
+     "eval/exec — 임의 코드 실행"),
     ("c-system", "high", r"\bsystem\s*\(\s*[\"a-zA-Z_]", "system() — 셸 명령 실행"),
     ("c-popen", "high", r"\b_?popen\s*\(", "popen — 셸 명령 실행"),
     ("java-exec", "high", r"Runtime\.getRuntime\(\)\.exec",
      "Runtime.exec — 명령 실행"),
-    ("node-child-process", "high", r"child_process|require\(['\"]child_process['\"]\)",
+    ("node-child-process", "high",
+     r"require\(['\"]child_process['\"]\)|\bchild_process\.\w",
      "child_process — 명령 실행"),
     ("shell-pipe-exec", "high", r"(?:curl|wget)\s+[^\n|]*\|\s*(?:ba)?sh",
      "원격 스크립트 파이프 실행 (curl|sh)"),
@@ -56,7 +58,32 @@ _RAW_RULES = [
 ]
 _RULES = [(name, sev, re.compile(pat), msg) for name, sev, pat, msg in _RAW_RULES]
 
+# 명령 실행/파괴적 조작 규칙은 주석 속 흔적(예: `# do not use eval(`)을 걸러
+# 오탐이 auto_approve를 무력화하지 않도록, 라인 주석을 제거한 코드부만 검사한다.
+# 시크릿 하드코딩 규칙은 주석에 있어도 위험하므로 원문 전체를 검사한다.
+_CODE_ONLY = {
+    "exec-shell-true", "os-system", "py-eval-exec", "c-system", "c-popen",
+    "java-exec", "node-child-process", "shell-pipe-exec", "reverse-shell",
+    "rm-rf-root", "rmtree-root", "fork-bomb", "disk-write",
+}
+
 _MAX_PER_FILE = 20   # 파일당 표시 상한 (플러딩 방지)
+
+
+def _strip_line_comments(s: str) -> str:
+    """`#` 및 `//` 라인 주석 제거 — 단 `://`(URL 스킴)는 보호."""
+    h = s.find("#")
+    if h != -1:
+        s = s[:h]
+    i = 0
+    while True:
+        i = s.find("//", i)
+        if i == -1:
+            break
+        if i == 0 or s[i - 1] != ":":
+            return s[:i]
+        i += 2
+    return s
 
 
 def scan_text(path: str, content: str) -> list[dict]:
@@ -65,8 +92,10 @@ def scan_text(path: str, content: str) -> list[dict]:
     for i, line in enumerate(content.splitlines(), 1):
         if len(line) > 4000:          # 압축/자동생성 라인은 건너뜀
             continue
+        code = _strip_line_comments(line)
         for name, sev, rx, msg in _RULES:
-            if rx.search(line):
+            target = code if name in _CODE_ONLY else line
+            if rx.search(target):
                 out.append({"path": path, "line": i, "rule": name,
                             "severity": sev, "message": msg,
                             "snippet": line.strip()[:200]})

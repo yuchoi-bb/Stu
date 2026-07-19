@@ -111,7 +111,8 @@ def connections():
         "branch": dict(branch) if branch else None,
     }
     if is_admin:   # 2인 체계 권장 경고 노출 (관리자에게만)
-        n = _admin_count()
+        from . import metrics
+        n = metrics.admin_count()
         resp["admin_count"] = n
         resp["low_admin_warning"] = n < 2
     return jsonify(resp)
@@ -311,11 +312,7 @@ def session_detail(session_id):
             "SELECT build_id, attempt, status, buildid, run_id, fail_summary, "
             "created_at, completed_at FROM builds WHERE studio_id=? ORDER BY attempt",
             (studio["studio_id"],))]
-        # §6.6 안 B: CI 통과 회차가 있고 아직 PR이 없으면 PR 생성 버튼 노출
-        can_pr = (any(b["status"] == "pass" for b in builds)
-                  and bool(studio["branch_name"])
-                  and studio["branch_name"] != config.GHE_DEFAULT_BASE_BRANCH
-                  and not studio["pr_url"])
+        can_pr = _can_pr(studio, builds)
     return jsonify({"session": dict(session),
                     "studio": dict(studio) if studio else None,
                     "builds": builds,
@@ -480,11 +477,7 @@ def studio_status(studio_id):
         "SELECT build_id, attempt, status, buildid, run_id, fail_summary, "
         "created_at, completed_at FROM builds WHERE studio_id=? ORDER BY attempt",
         (studio_id,))
-    # §6.6 안 B: CI 통과 회차가 있고 아직 PR이 없으면 PR 생성 버튼 노출
-    can_pr = (any(b["status"] == "pass" for b in builds)
-              and bool(studio["branch_name"])
-              and studio["branch_name"] != config.GHE_DEFAULT_BASE_BRANCH
-              and not studio["pr_url"])
+    can_pr = _can_pr(studio, builds)
     return jsonify({"studio": dict(studio), "builds": [dict(b) for b in builds],
                     "can_pr": can_pr})
 
@@ -595,12 +588,24 @@ def create_pr(studio_id):
     except ghe.GheNotConnected as e:
         abort(409, f"GHE 재연결 필요: {e}")
     except ghe.GheError as e:
+        # 422 = 반영할 변경 없음/이미 처리됨 등 사용자 대응 가능 상황 → 409
+        if getattr(e, "status", None) == 422:
+            abort(409, "PR 생성 불가: 브랜치에 main 대비 반영할 변경이 없거나 "
+                       "이미 처리된 상태입니다.")
         abort(502, str(e))
     db.execute("UPDATE studios SET pr_number=?, pr_url=? WHERE studio_id=?",
                (number, url, studio_id))
     audit.record(current_user(), "create_pr", studio_id,
                  "existing" if existing else "created", url)
     return jsonify({"pr_number": number, "pr_url": url, "existing": existing})
+
+
+def _can_pr(studio, builds) -> bool:
+    """§6.6 안 B: CI 통과 회차가 있고 아직 PR이 없으면 PR 생성 버튼 노출 조건."""
+    return bool(studio and any(b["status"] == "pass" for b in builds)
+                and studio["branch_name"]
+                and studio["branch_name"] != config.GHE_DEFAULT_BASE_BRANCH
+                and not studio["pr_url"])
 
 
 def _own_build(build_id: int):
@@ -670,10 +675,6 @@ def _require_admin():
         abort(403, "관리자 전용")
 
 
-def _admin_count() -> int:
-    return db.one("SELECT COUNT(*) AS n FROM users WHERE is_admin=1")["n"]
-
-
 # ---------- 관리자 롤 (2인 체계 권장, §12.1) ----------
 
 @app.get("/api/studio/admin/admins")
@@ -697,18 +698,23 @@ def set_admin_role():
     make_admin = bool(body.get("is_admin"))
     if not target:
         abort(400, "user_id 필요")
-    row = db.one("SELECT is_admin FROM users WHERE user_id=?", (target,))
-    if row is None:
-        abort(404, "해당 사용자가 아직 로그인한 적 없음 (users 미등록)")
-    if not make_admin and row["is_admin"] and _admin_count() <= 1:
-        abort(409, "마지막 관리자는 강등할 수 없습니다 (최소 1인 유지)")
-    db.execute("UPDATE users SET is_admin=? WHERE user_id=?",
-               (1 if make_admin else 0, target))
-    from . import audit
+    from . import audit, metrics
+    # 마지막 관리자 강등 가드는 count 확인과 UPDATE가 원자적이어야 한다 —
+    # 서로 다른 관리자를 동시에 강등하는 경합(둘 다 count>1 통과 → 0명)을 막기 위해
+    # 직렬화한다(_submit_lock 재사용).
+    with _submit_lock:
+        row = db.one("SELECT is_admin FROM users WHERE user_id=?", (target,))
+        if row is None:
+            abort(404, "해당 사용자가 아직 로그인한 적 없음 (users 미등록)")
+        if not make_admin and row["is_admin"] and metrics.admin_count() <= 1:
+            abort(409, "마지막 관리자는 강등할 수 없습니다 (최소 1인 유지)")
+        db.execute("UPDATE users SET is_admin=? WHERE user_id=?",
+                   (1 if make_admin else 0, target))
+        count = metrics.admin_count()
     audit.record(current_user(),
                  "grant_admin" if make_admin else "revoke_admin", target, "ok")
     return jsonify({"user_id": target, "is_admin": make_admin,
-                    "admin_count": _admin_count()})
+                    "admin_count": count})
 
 
 # ---------- 첨부 (§8) ----------

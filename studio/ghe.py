@@ -44,7 +44,12 @@ class GheNotConnected(Exception):
 
 
 class GheError(Exception):
-    """GHE API 호출 실패 (토큰 문제 외) — 상위에서 502로 변환."""
+    """GHE API 호출 실패 (토큰 문제 외). status는 GHE 응답 코드 — 상위에서
+    422(반영할 변경 없음/검증 실패)는 409로, 그 외는 502로 변환한다."""
+
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status
 
 
 # ---------- 토큰 (§3.3) ----------
@@ -469,4 +474,5 @@ def create_pull_request(user_id: str, repo: str, head_branch: str, base: str,
     again = find_open_pr(user_id, repo, head_branch, base)
     if again:
         return again["number"], again["url"], True
-    raise GheError(f"PR 생성 실패 ({r.status_code}): {r.text[:200]}")
+    raise GheError(f"PR 생성 실패 ({r.status_code}): {r.text[:200]}",
+                   status=r.status_code)

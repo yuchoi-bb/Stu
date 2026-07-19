@@ -136,4 +136,23 @@ resp = client.post(f"/api/studio/studios/{studio_id}/create-pr",
 assert resp.status_code == 404, resp.status_code
 print("OK: 타 사용자 PR 생성 차단 (404)")
 
+# ---------- GHE 422(반영할 변경 없음)는 502 아닌 409 ----------
+studio_id4 = make_passed_studio(branch="feature/nodiff")
+class R422:
+    status_code = 422
+    text = '{"message":"No commits between main and feature/nodiff"}'
+    def json(self): return []
+def get_none(url, **k):
+    class R:
+        status_code = 200
+        def json(self): return []
+    return R()
+with mock.patch.object(ghe, "get_token", lambda u: "tok"), \
+     mock.patch("studio.ghe.requests.get", get_none), \
+     mock.patch("studio.ghe.requests.post", lambda *a, **k: R422()):
+    resp = client.post(f"/api/studio/studios/{studio_id4}/create-pr",
+                       headers=H, json={})
+assert resp.status_code == 409, resp.status_code
+print("OK: GHE 422(변경 없음) → 502 아닌 409로 안내")
+
 print("\nALL PR TESTS PASSED")

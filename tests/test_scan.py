@@ -43,6 +43,20 @@ clean = 'def add(a, b):\n    return a + b\n'
 assert scan.scan_files({"ok.py": clean}) == []
 print("OK: 정상 코드 무탐 (오탐 억제)")
 
+# 주석 속 위험어는 code_only 규칙에서 무탐 (auto_approve 무력화 방지)
+comment_fp = (
+    '# do not use eval( here\n'          # 주석 — 무탐이어야
+    'x = obj.eval(y)\n'                   # 메서드 호출 — 무탐(negative lookbehind)
+    'url = "http://a//b"\n'               # :// 보호 — 무탐
+)
+assert scan.scan_files({"c.py": comment_fp}) == [], scan.scan_files({"c.py": comment_fp})
+print("OK: 주석/메서드호출/URL 오탐 억제 (code_only + lookbehind)")
+
+# 단, 주석에 있는 시크릿은 여전히 탐지 (시크릿 규칙은 원문 검사)
+sec = '# key AKIAIOSFODNN7EXAMPLE leaked\n'
+assert any(x["rule"] == "aws-akid" for x in scan.scan_files({"s.py": sec}))
+print("OK: 주석 속 시크릿은 여전히 탐지")
+
 # 요약 문자열
 s = scan.summarize(f)
 assert "high" in s and "자동 승인을 보류" in s
