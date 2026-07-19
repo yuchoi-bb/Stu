@@ -708,13 +708,17 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
       사람 검토 강제**(§6.4). 테스트 통과
 - [ ] 관리자 브랜치 조회 화면 (요청 이력 브랜치 + 마지막 커밋일 + CI 상태)
 - [ ] 사용자별 미터링 조회 화면 (usage_log 집계 + §10.1 성공 지표 표시)
-- [ ] 운영 문서 작성 (장애 대응, 토큰 문제 해결, 백업 복구) + 관리자 2인 인수인계
-- [ ] studio.db + 첨부문서 백업 cron (일 1회, 보존 30일)
+- [x] 운영 문서 작성 (장애 대응, 토큰 문제 해결, 백업 복구) + 관리자 2인 인수인계 —
+      `docs/toolhub-studio-ops.md` (헬스체크/재시작/장애유형별/토큰/백업복구/audit/인수인계)
+- [x] studio.db + 첨부문서 백업 cron (일 1회, 보존 30일) — `studio/backup.py`(SQLite 온라인
+      백업 API=WAL 안전 + 첨부 tar.gz + 보존 정리), `manage.py backup`,
+      `deploy/toolhub-studio-backup.{service,timer}`(매일 03:30). 테스트 통과
 - [ ] TIG 지표 연동 (요청 수/실패율/생성 시간/토큰)
-- [ ] 사용자당 동시 진행 1건 제한 구현
-- [ ] AWS SSO 사용 가이드 (최초 연결 스크린샷, 재승인, 트러블슈팅)
-- [ ] GHE 연결 가이드 (OAuth 승인 절차, 재연결 방법; 폴백 시 PAT 발급 절차)
-- [ ] 7명 대상 Studio 사용 가이드 (요구조건 입력 → 확정 → 검증 흐름)
+- [x] 사용자당 동시 진행 1건 제한 구현 — `MAX_CONCURRENT_PER_USER=1`,
+      `jobs.active_count_for_user`, 승인 시 원자적 직렬화(§4.2). 테스트 통과
+- [x] AWS SSO 사용 가이드 / GHE 연결 가이드 / 7명 Studio 사용 가이드 —
+      `docs/toolhub-studio-guide.md` (최초 연결 A/B·재연결·요구조건→확정→검증→PR 흐름).
+      스크린샷은 실 배포 후 첨부
 
 ### 12.5 추후 / 확장
 

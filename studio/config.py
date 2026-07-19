@@ -11,6 +11,10 @@ FERNET_KEY_PATH = os.environ.get("STUDIO_FERNET_KEY",
 ATTACH_DIR = os.environ.get("STUDIO_ATTACH_DIR", os.path.join(BASE_DIR, "attachments"))
 ATTACH_MAX_BYTES = 20 * 1024 * 1024          # §8: 파일당 20MB
 
+# 백업 (§12.4): studio.db + 첨부 일 1회, 기본 30일 보존
+BACKUP_DIR = os.environ.get("STUDIO_BACKUP_DIR", os.path.join(BASE_DIR, "backups"))
+BACKUP_RETENTION_DAYS = int(os.environ.get("STUDIO_BACKUP_RETENTION_DAYS", "30"))
+
 # 모델 정책 (§11): MODEL_ID 고정, 교체 시 스모크 테스트 후 전환
 # Bedrock 모델 ID는 anthropic. 접두사. cross-region inference profile 사용 시
 # 지역 접두사(apac. 등)가 붙은 프로파일 ID로 교체 (§12.1 확인 항목)

@@ -1,0 +1,14 @@
+[Unit]
+Description=ToolHub Studio 백업 (studio.db + 첨부, 30일 보존)
+After=network.target
+
+[Service]
+Type=oneshot
+User=toolhub
+WorkingDirectory=/opt/toolhub
+ExecStart=/opt/toolhub/venv/bin/python -m studio.manage backup
+Environment=STUDIO_DB=/opt/toolhub/data/studio.db
+Environment=STUDIO_FERNET_KEY=/opt/toolhub/data/.fernet.key
+Environment=STUDIO_ATTACH_DIR=/opt/toolhub/data/attachments
+Environment=STUDIO_BACKUP_DIR=/opt/toolhub/backups
+Environment=STUDIO_BACKUP_RETENTION_DAYS=30

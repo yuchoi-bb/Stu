@@ -1,0 +1,16 @@
+[Unit]
+Description=ToolHub Studio 일 1회 백업 타이머
+
+[Timer]
+# 매일 03:30 (부하 적은 시간). 재부팅으로 놓친 실행은 다음 기회에 보정
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+
+# 설치:
+#   sudo cp deploy/toolhub-studio-backup.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now toolhub-studio-backup.timer
+#   systemctl list-timers toolhub-studio-backup.timer   # 다음 실행 확인

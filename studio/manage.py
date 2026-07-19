@@ -4,6 +4,7 @@
   python -m studio.manage health
   python -m studio.manage set-admin <user_id> [--off]   # 마지막 관리자 강등 금지
   python -m studio.manage admins                        # 관리자 목록 + 2인 권장 경고
+  python -m studio.manage backup [--dest DIR]           # DB+첨부 백업(30일 보존)
   python -m studio.manage set-branch <user_id> <repo> <branch>
   python -m studio.manage map-analysis <tool> <repo> <md_path>
   python -m studio.manage show-studio <studio_id>
@@ -56,6 +57,14 @@ def cmd_set_admin(a):
     n = _admin_count()
     warn = "  ⚠ 관리자 1명 — 2인 체계 권장" if n < 2 else ""
     print(f"{a.user_id} is_admin={val} (총 관리자 {n}명){warn}")
+
+
+def cmd_backup(a):
+    from . import backup
+    r = backup.run_backup(a.dest)
+    print(f"db: {r['db'] or '-'}")
+    print(f"attachments: {r['attachments'] or '-'}")
+    print(f"pruned(30일 초과): {r['pruned']}건")
 
 
 def cmd_admins(_):
@@ -151,6 +160,9 @@ def main(argv=None):
 
     sub.add_parser("users").set_defaults(fn=cmd_users)
     sub.add_parser("admins").set_defaults(fn=cmd_admins)
+
+    sp = sub.add_parser("backup"); sp.add_argument("--dest")
+    sp.set_defaults(fn=cmd_backup)
 
     args = p.parse_args(argv)
     _init()
