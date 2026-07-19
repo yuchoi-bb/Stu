@@ -299,14 +299,21 @@ def session_detail(session_id):
         "AND status IN ('generating','ready') "
         "ORDER BY draft_id DESC LIMIT 1", (session_id,))
     builds = []
+    can_pr = False
     if studio:
         builds = [dict(b) for b in db.query(
             "SELECT build_id, attempt, status, buildid, run_id, fail_summary, "
             "created_at, completed_at FROM builds WHERE studio_id=? ORDER BY attempt",
             (studio["studio_id"],))]
+        # §6.6 안 B: CI 통과 회차가 있고 아직 PR이 없으면 PR 생성 버튼 노출
+        can_pr = (any(b["status"] == "pass" for b in builds)
+                  and bool(studio["branch_name"])
+                  and studio["branch_name"] != config.GHE_DEFAULT_BASE_BRANCH
+                  and not studio["pr_url"])
     return jsonify({"session": dict(session),
                     "studio": dict(studio) if studio else None,
                     "builds": builds,
+                    "can_pr": can_pr,
                     "draft": dict(draft) if draft else None})
 
 
@@ -467,7 +474,13 @@ def studio_status(studio_id):
         "SELECT build_id, attempt, status, buildid, run_id, fail_summary, "
         "created_at, completed_at FROM builds WHERE studio_id=? ORDER BY attempt",
         (studio_id,))
-    return jsonify({"studio": dict(studio), "builds": [dict(b) for b in builds]})
+    # §6.6 안 B: CI 통과 회차가 있고 아직 PR이 없으면 PR 생성 버튼 노출
+    can_pr = (any(b["status"] == "pass" for b in builds)
+              and bool(studio["branch_name"])
+              and studio["branch_name"] != config.GHE_DEFAULT_BASE_BRANCH
+              and not studio["pr_url"])
+    return jsonify({"studio": dict(studio), "builds": [dict(b) for b in builds],
+                    "can_pr": can_pr})
 
 
 # ---------- Step 3.5: 코드 리뷰 게이트 (§7.1, §6.4 주 방어선) ----------
@@ -527,6 +540,48 @@ def close_studio(studio_id):
     db.execute("UPDATE studios SET status=?, completed_at=datetime('now') "
                "WHERE studio_id=?", (status, studio_id))
     return jsonify({"status": status})
+
+
+@app.post("/api/studio/studios/<studio_id>/create-pr")
+def create_pr(studio_id):
+    """§6.6 안 B: CI 통과 후 본인 명의 PR 생성. main 반영은 사람 리뷰 필수 —
+    자동 merge는 하지 않는다. 이미 열린 PR이 있으면 그것을 반환(멱등)."""
+    s = db.one("SELECT * FROM studios WHERE studio_id=?", (studio_id,))
+    if s is None or s["user_id"] != current_user():
+        abort(404)
+    if not s["branch_name"]:
+        abort(409, "작업 브랜치 미설정")
+    base = config.GHE_DEFAULT_BASE_BRANCH
+    if s["branch_name"] == base:
+        abort(409, f"작업 브랜치가 base({base})와 동일 — PR 대상 아님")
+    passed = db.one(
+        "SELECT attempt, commit_sha FROM builds "
+        "WHERE studio_id=? AND status='pass' ORDER BY attempt DESC LIMIT 1",
+        (studio_id,))
+    if passed is None:
+        abort(409, "CI 통과 회차가 없음 — 검증 통과 후 PR 생성 가능")
+    body_in = request.get_json(silent=True) or {}
+    req = (s["requirements"] or "").strip()
+    title = body_in.get("title") or (
+        req.splitlines()[0][:72] if req else f"[Studio] {studio_id}")
+    pr_body = body_in.get("body") or (
+        f"ToolHub Studio 생성 (studio `{studio_id}`, attempt {passed['attempt']}, "
+        f"commit `{(passed['commit_sha'] or '')[:10]}`).\n\n"
+        f"## 확정 요구조건\n{req}\n\n"
+        f"> main 반영은 사람 리뷰 후 수동 merge (자동 merge 금지, §6.6)")
+    from . import ghe, audit
+    try:
+        number, url, existing = ghe.create_pull_request(
+            s["user_id"], s["repo"], s["branch_name"], base, title, pr_body)
+    except ghe.GheNotConnected as e:
+        abort(409, f"GHE 재연결 필요: {e}")
+    except ghe.GheError as e:
+        abort(502, str(e))
+    db.execute("UPDATE studios SET pr_number=?, pr_url=? WHERE studio_id=?",
+               (number, url, studio_id))
+    audit.record(current_user(), "create_pr", studio_id,
+                 "existing" if existing else "created", url)
+    return jsonify({"pr_number": number, "pr_url": url, "existing": existing})
 
 
 def _own_build(build_id: int):

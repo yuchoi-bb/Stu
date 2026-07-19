@@ -11,8 +11,9 @@ os.environ["STUDIO_FERNET_KEY"] = os.path.join(TMP, ".fernet.key")
 os.environ["STUDIO_ATTACH_DIR"] = os.path.join(TMP, "attachments")
 os.environ["STUDIO_DEV_USER"] = "hong"
 
-from studio import db, pipeline  # noqa: E402
-from studio.app import app       # noqa: E402
+from studio import db, ghe, pipeline  # noqa: E402
+from studio.app import app             # noqa: E402
+from flask import jsonify, request     # noqa: E402
 
 DRAFT = ("## R1. 출력 내림 처리\n- floor, 소수 3자리 기준\n\n"
          "## 확인 필요\n- 음수 입력의 내림 방향?\n")
@@ -33,6 +34,18 @@ def fake_invoke(user_id, session_id, messages, system, **kw):
 
 
 pipeline.invoke_claude = fake_invoke
+# UI에서 PR 버튼(§6.6 안 B)을 실동작으로 확인하기 위한 mock:
+# GHE 호출 없이 PR 생성 성공을 흉내낸다.
+ghe.create_pull_request = lambda *a, **k: (77, "https://ghe.test/toolhub/thr/pull/77", False)
+
+
+@app.post("/api/studio/test/pass/<int:build_id>")   # 테스트 전용: 회차를 pass로 강제
+def _test_pass(build_id):
+    db.execute("UPDATE builds SET status='pass', commit_sha='deadbeefcafe', "
+               "completed_at=datetime('now') WHERE build_id=?", (build_id,))
+    return jsonify({"ok": True})
+
+
 db.execute("INSERT OR IGNORE INTO users (user_id) VALUES ('hong')")
 db.execute("INSERT OR REPLACE INTO user_branch_config (user_id, repo, branch_name) "
            "VALUES ('hong','thr','feature/foo')")

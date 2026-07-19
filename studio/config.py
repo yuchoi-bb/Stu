@@ -38,6 +38,8 @@ HISTORY_RECENT_TURNS = 6
 GHE_BASE_URL = os.environ.get("STUDIO_GHE_BASE", "https://github.samsungds.net")
 GHE_API_URL = os.environ.get("STUDIO_GHE_API", GHE_BASE_URL + "/api/v3")
 GHE_OWNER = os.environ.get("STUDIO_GHE_OWNER", "toolhub")
+# PR base 브랜치 (§6.6 안 B: CI 통과 후 본인 명의 PR 생성 시 대상)
+GHE_DEFAULT_BASE_BRANCH = os.environ.get("STUDIO_GHE_BASE_BRANCH", "main")
 GHE_OAUTH_CLIENT_ID = os.environ.get("STUDIO_GHE_OAUTH_CLIENT_ID", "")
 GHE_OAUTH_CLIENT_SECRET = os.environ.get("STUDIO_GHE_OAUTH_CLIENT_SECRET", "")
 GHE_OAUTH_CALLBACK = os.environ.get(

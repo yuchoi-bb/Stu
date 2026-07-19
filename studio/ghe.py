@@ -43,6 +43,10 @@ class GheNotConnected(Exception):
     pass
 
 
+class GheError(Exception):
+    """GHE API 호출 실패 (토큰 문제 외) — 상위에서 502로 변환."""
+
+
 # ---------- 토큰 (§3.3) ----------
 
 def save_pat(user_id: str, token: str) -> str:
@@ -420,3 +424,49 @@ def _poll_loop() -> None:
 
 def start_ci_poller() -> None:
     threading.Thread(target=_poll_loop, daemon=True, name="ci-poll").start()
+
+
+# ---------- §6.6 안 B: CI 통과 후 본인 명의 PR 생성 (자동 merge 금지) ----------
+
+def find_open_pr(user_id: str, repo: str, head_branch: str,
+                 base: str) -> dict | None:
+    """head→base로 이미 열린 PR이 있으면 반환 (중복 생성 방지)."""
+    token = get_token(user_id)
+    r = _http_retry(lambda: requests.get(
+        f"{config.GHE_API_URL}/repos/{config.GHE_OWNER}/{repo}/pulls",
+        headers=_auth_headers(token),
+        params={"head": f"{config.GHE_OWNER}:{head_branch}",
+                "base": base, "state": "open"},
+        timeout=15))
+    if r.status_code == 200 and r.json():
+        p = r.json()[0]
+        return {"number": p["number"], "url": p["html_url"]}
+    return None
+
+
+def create_pull_request(user_id: str, repo: str, head_branch: str, base: str,
+                        title: str, body: str) -> tuple[int, str, bool]:
+    """본인 토큰으로 PR 생성. 자동 merge는 하지 않는다 (§6.6: main 반영은
+    사람 리뷰 필수). 이미 열린 PR이 있으면 그것을 반환 — 멱등.
+    반환: (pr_number, pr_url, existing)."""
+    existing = find_open_pr(user_id, repo, head_branch, base)
+    if existing:
+        _log.info("PR already open repo=%s head=%s #%s",
+                  repo, head_branch, existing["number"])
+        return existing["number"], existing["url"], True
+    token = get_token(user_id)
+    r = _http_retry(lambda: requests.post(
+        f"{config.GHE_API_URL}/repos/{config.GHE_OWNER}/{repo}/pulls",
+        headers=_auth_headers(token),
+        json={"title": title, "head": head_branch, "base": base, "body": body},
+        timeout=20))
+    if r.status_code == 201:
+        p = r.json()
+        _log.info("PR created repo=%s head=%s -> %s #%s",
+                  repo, head_branch, base, p["number"])
+        return p["number"], p["html_url"], False
+    # 생성 실패 후 경합으로 이미 열렸을 수 있으니 한 번 더 확인
+    again = find_open_pr(user_id, repo, head_branch, base)
+    if again:
+        return again["number"], again["url"], True
+    raise GheError(f"PR 생성 실패 ({r.status_code}): {r.text[:200]}")

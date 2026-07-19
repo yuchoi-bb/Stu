@@ -440,13 +440,25 @@ injection) 경유 임의 코드 실행 위험. 대책:
   반드시 충돌로 표면화한다.**
 - 상태 전이 확장: `generating → pushing → (push_conflict) → ci_running → ...`
 
-### 6.6 검증 통과 이후 워크플로우 (미정 — Todo)
+### 6.6 검증 통과 이후 워크플로우 (**결정: 안 B**)
 
-CI pass 산출물의 main 반영 방식 결정 필요. 브랜치가 본인 소유이므로 자연스러운 흐름은:
+CI pass 산출물의 main 반영 방식. 브랜치가 본인 소유이므로:
 
-- 안 A: 사용자가 본인 브랜치에서 직접 PR 생성 (기존 개발 플로우 그대로, MVP 권장)
-- 안 B: Studio "PR 생성" 버튼 → 본인 PAT로 PR 자동 생성 (본인 명의)
+- 안 A: 사용자가 본인 브랜치에서 직접 PR 생성 (기존 개발 플로우 그대로)
+- **안 B (채택): Studio "PR 생성" 버튼 → 본인 토큰(OAuth/PAT)으로 PR 자동 생성 (본인 명의)**
 - 어느 쪽이든 **main merge는 사람 리뷰 필수** (자동 merge 금지)
+
+**구현 (안 B)**:
+- `POST /api/studio/studios/{studio_id}/create-pr` — 전제: 해당 studio에 CI 통과(`pass`)
+  회차가 1건 이상. base = `GHE_DEFAULT_BASE_BRANCH`(기본 main), head = 사용자 작업 브랜치.
+- 본인 토큰으로 GHE `POST /pulls` 호출, **자동 merge 안 함**(생성까지만). 응답 PR
+  번호/URL을 `studios.pr_number`/`pr_url`에 저장.
+- **멱등**: 같은 head→base로 이미 열린 PR이 있으면 중복 생성하지 않고 그 PR을 반환.
+- **가드**: 작업 브랜치 == base면 거부, CI 통과 회차 없으면 거부, 소유자만 호출 가능.
+- PR 본문에 확정 요구조건 + studio_id/attempt/commit + "main 반영은 사람 리뷰 후
+  수동 merge" 문구 자동 포함. 생성 행위는 audit(`create_pr`) 기록.
+- UI: 회차 중 `pass`가 있고 아직 PR이 없으면 STUDIO 패널에 "PR 생성" 버튼,
+  생성 후에는 "PR #N 열기 ↗" 링크로 전환 (status 응답의 `can_pr` 플래그).
 
 ---
 
@@ -606,7 +618,7 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
 - [ ] 사내 보안/AI 심의 필요 여부 확인 — 코드의 Bedrock 전송은 CLI 선례 있으나 "공식 서비스"화 시 별도 심의 대상 가능
 - [ ] 관리자 롤 지정 (users.is_admin) — **2인 체계** 권장, 브랜치 관리/미터링 열람 권한 범위
 - [ ] 사전 분석 md 관리 주체/갱신 주기 결정
-- [ ] 검증 통과 후 워크플로우 결정: 수동 PR(안 A) vs Studio PR 버튼(안 B) — §6.6
+- [x] 검증 통과 후 워크플로우 결정: **안 B(Studio PR 버튼) 채택** — 구현 완료(§6.6, `create-pr` 엔드포인트+UI+테스트)
 
 ### 12.2 Phase 1 — 코어
 
@@ -685,7 +697,7 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
 
 - [ ] SSE 스트리밍 (gunicorn worker class 변경 + Apache 버퍼링 해제)
 - [ ] HWP 파싱 지원 (12.1 확인 결과에 따라)
-- [ ] Studio PR 생성 버튼 (안 B 채택 시, 본인 PAT로 생성)
+- [x] Studio PR 생성 버튼 (안 B 채택) — 본인 토큰으로 PR 생성, 멱등/가드/자동merge금지, 테스트 통과
 - [ ] 사용자 증가 시 PostgreSQL 이관 (스키마 호환 유지)
 - [ ] 첨부문서 저장소 OBS(MinIO) 이관
 - [ ] 일일 토큰 쿼터 정책 (미터링 데이터 기반)

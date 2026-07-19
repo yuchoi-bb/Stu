@@ -88,6 +88,21 @@ try:
                                timeout=20000)
         print("OK: 승인 → push 단계 전이 (GHE 미연결 → fail 종결)")
         page.screenshot(path=f"{SHOT}/ui_final.png")
+
+        # ---------- §6.6 안 B: CI 통과 → PR 생성 버튼 ----------
+        # 최신 회차를 테스트 훅으로 pass로 강제 → 패널에 PR 버튼 노출
+        last_bid = page.evaluate(
+            "state.detail.builds[state.detail.builds.length-1].build_id")
+        urllib.request.urlopen(urllib.request.Request(
+            f"{BASE}/api/studio/test/pass/{last_bid}", method="POST",
+            data=b"{}", headers={"Content-Type": "application/json"}))
+        page.wait_for_selector("text=CI 통과 — 본인 명의로 PR 생성", timeout=15000)
+        print("OK: CI 통과 회차 → PR 생성 버튼 노출")
+        page.click("text=CI 통과 — 본인 명의로 PR 생성")
+        page.wait_for_selector("text=PR #77 열기", timeout=15000)
+        assert "pull/77" in page.locator("a.btn[href*='pull/77']").get_attribute("href")
+        print("OK: PR 생성 → PR #77 링크로 전환 (자동 merge 없음)")
+        page.screenshot(path=f"{SHOT}/ui_pr.png")
         browser.close()
     print("UI TESTS PASSED")
 finally:

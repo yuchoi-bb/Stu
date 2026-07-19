@@ -32,6 +32,8 @@ _MIGRATIONS = [
     ("builds", "fail_summary", "ALTER TABLE builds ADD COLUMN fail_summary TEXT"),
     ("build_files", "base_blob_sha", "ALTER TABLE build_files ADD COLUMN base_blob_sha TEXT"),
     ("build_files", "pushed_blob_sha", "ALTER TABLE build_files ADD COLUMN pushed_blob_sha TEXT"),
+    ("studios", "pr_number", "ALTER TABLE studios ADD COLUMN pr_number INTEGER"),
+    ("studios", "pr_url", "ALTER TABLE studios ADD COLUMN pr_url TEXT"),
 ]
 
 

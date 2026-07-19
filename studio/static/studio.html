@@ -332,6 +332,13 @@ function renderPanel() {
     <div><div class="p-title">STUDIO</div><div class="p-id">${esc(st.studio_id)}</div>
       <div class="hint">${esc(st.repo || "")} / ${esc(st.branch_name || "브랜치 미설정")}</div></div>
     <div class="p-sec"><h5>회차 이력 (1 studio : N build)</h5>${builds || '<div class="hint">아직 없음</div>'}</div>
+    ${st.pr_url
+      ? `<div class="p-sec"><h5>PR</h5><a class="btn" href="${esc(st.pr_url)}" target="_blank">PR #${st.pr_number} 열기 ↗</a>
+         <div class="hint">main 반영은 사람 리뷰 후 수동 merge (자동 merge 안 함)</div></div>`
+      : state.detail.can_pr
+        ? `<div class="p-sec"><h5>PR</h5><button class="btn" onclick="createPr()">CI 통과 — 본인 명의로 PR 생성</button>
+           <div class="hint">§6.6: 검증 통과분을 main 대상 PR로. merge는 리뷰 후 수동</div></div>`
+        : ""}
     <div class="p-actions">
       ${last && ["generating", "pushing", "ci_running"].includes(last.status)
         ? `<button class="btn danger" onclick="cancelBuild(${last.build_id})">요청 취소 (stage 중단 시그널)</button>` : ""}
@@ -377,6 +384,14 @@ async function reviewBuild(action) {
   state.reviewBuild = null; await refresh();
 }
 async function cancelBuild(id) { await post(`/builds/${id}/cancel`); await refresh(); }
+async function createPr() {
+  if (!confirm("검증 통과분을 main 대상 PR로 생성합니다. (merge는 리뷰 후 수동)")) return;
+  try {
+    const r = await post(`/studios/${state.detail.studio.studio_id}/create-pr`, {});
+    if (r.pr_url) window.open(r.pr_url, "_blank");
+  } catch (e) { alert(e.message); }
+  await refresh();
+}
 async function closeStudio(status) {
   if (!confirm(status === "done" ? "채택 완료로 종결할까요?" : "폐기하고 재확정으로 돌아갈까요?")) return;
   await post(`/studios/${state.detail.studio.studio_id}/close`, {status});
