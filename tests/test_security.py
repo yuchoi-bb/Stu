@@ -81,4 +81,17 @@ except RuntimeError as e:
     assert "ghs_TOPSECRET" not in str(e), f"토큰 노출: {e}"
 print("OK: git 오류 메시지에서 토큰 마스킹 (fail_summary→DB·대화·Bedrock 유출 차단)")
 
+# ---------- git 서브프로세스 타임아웃 (executor 스레드 hang 방지) ----------
+import subprocess as _sp    # noqa: E402
+def _boom(*a, **k):
+    raise _sp.TimeoutExpired(cmd="git", timeout=ghe_git.GIT_TIMEOUT)
+try:
+    import unittest.mock as _mock
+    with _mock.patch("studio.ghe_git.subprocess.run", _boom):
+        ghe_git._run_git(["clone", "x"], check=True)
+    assert False, "타임아웃이 RuntimeError로 변환되지 않음"
+except RuntimeError as e:
+    assert "타임아웃" in str(e), e
+print("OK: git 타임아웃 → RuntimeError (executor 스레드 무한 hang 방지)")
+
 print("\nALL SECURITY TESTS PASSED")

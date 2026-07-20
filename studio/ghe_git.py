@@ -22,6 +22,23 @@ def _redact(s: str) -> str:
     return _CRED_RE.sub(r"\1***@", s)
 
 
+# git 작업 타임아웃(초): 네트워크(clone/push)가 멈추면 executor 스레드가 영영 물려
+# 파이프라인이 멈추므로 상한을 둔다. 초과 시 명확한 오류로 종결(→ build fail).
+GIT_TIMEOUT = 180
+
+
+def _run_git(args, cwd=None, check=False):
+    """subprocess.run 래퍼 — 타임아웃 + 자격증명 마스킹."""
+    try:
+        r = subprocess.run(["git", *args], cwd=cwd, capture_output=True,
+                           text=True, timeout=GIT_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(_redact(f"git {args[0]} 타임아웃 ({GIT_TIMEOUT}s 초과)"))
+    if check and r.returncode != 0:
+        raise RuntimeError(_redact(f"git {' '.join(args)}: {r.stderr.strip()}"))
+    return r
+
+
 class PushConflict(Exception):
     pass
 
@@ -44,15 +61,11 @@ def is_unsafe_path(path: str) -> bool:
 
 
 def _git(cwd, *args) -> str:
-    r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
-    if r.returncode != 0:
-        raise RuntimeError(_redact(f"git {' '.join(args)}: {r.stderr.strip()}"))
-    return r.stdout.strip()
+    return _run_git(list(args), cwd=cwd, check=True).stdout.strip()
 
 
 def blob_sha_at_head(workdir: str, path: str) -> str | None:
-    r = subprocess.run(["git", "rev-parse", f"HEAD:{path}"],
-                       cwd=workdir, capture_output=True, text=True)
+    r = _run_git(["rev-parse", f"HEAD:{path}"], cwd=workdir)
     return r.stdout.strip() if r.returncode == 0 else None
 
 
@@ -107,14 +120,12 @@ def commit_and_push(remote_url: str, branch: str, files: dict[str, str],
             "-c", f"user.name={author_name}",
             "-c", f"user.email={author_email}",
         ]
-        subprocess.run(["git", *env_author, "commit",
-                        "--author", f"{author_name} <{author_email}>",
-                        "-m", commit_message],
-                       cwd=tmp, capture_output=True, text=True, check=True)
+        _run_git([*env_author, "commit",
+                  "--author", f"{author_name} <{author_email}>",
+                  "-m", commit_message], cwd=tmp, check=True)
         sha = _git(tmp, "rev-parse", "HEAD")
 
-        r = subprocess.run(["git", "push", "origin", branch],
-                           cwd=tmp, capture_output=True, text=True)
+        r = _run_git(["push", "origin", branch], cwd=tmp)
         if r.returncode != 0:
             if _retry:   # push 사이에 사용자가 먼저 push한 경우: 재fetch 후 재생성 1회
                 shutil.rmtree(tmp, ignore_errors=True)

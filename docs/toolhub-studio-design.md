@@ -461,6 +461,9 @@ injection) 경유 임의 코드 실행 위험. 대책:
   (`https://x-access-token:TOKEN@…`). clone/push 실패 시 그 오류가
   `fail_summary`→DB·대화·Bedrock으로 흘러가 평문 노출되므로, git 오류 메시지의
   자격증명을 `***@`로 마스킹한다(`_redact`). (저장 토큰은 §5 Fernet 암호화)
+- **git 서브프로세스 타임아웃(reliability)**: clone/push가 네트워크로 멈추면
+  executor 스레드(8개)가 영영 물려 파이프라인이 정지한다 → 모든 git 호출에
+  `GIT_TIMEOUT`(180s) 상한, 초과 시 명확한 오류로 build fail 종결.
 
 ### 6.5 push 충돌 정책 (자유 브랜치의 필연 시나리오)
 
