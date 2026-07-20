@@ -171,6 +171,10 @@ Apache (khtoolhubw02)
      `deploy/apache-toolhub-studio.conf.reference`에 명시.
 5. Flask 5000 포트는 localhost 바인딩 유지 (gunicorn `bind=127.0.0.1:5000`) —
    외부는 Apache 경유만 가능, 직접 접근 차단
+6. **CSRF 방지**: 인증이 SSO 쿠키 기반이라 상태 변경(POST/PUT/PATCH/DELETE)은
+   cross-origin 위조가 가능하다. `before_request`에서 `Origin` 호스트가 요청
+   호스트와 다르면 차단(Origin 없는 서버-서버 요청=ci-callback은 통과, HMAC로 별도
+   보호). Apache는 `ProxyPreserveHost On` 전제(참조 설정에 명시).
 
 **효과**: Knox 세션이 있으면 접속 시 추가 로그인 0회 (Jira/GHE와 동일 UX).
 

@@ -41,4 +41,23 @@ r = client.get("/api/studio/connections", headers={"X-Remote-User": "kim"})
 assert r.get_json()["user_id"] == "kim"
 print("OK: 헤더 값에 따라 신원 분리 (Apache가 이 값을 통제해야 함)")
 
+# ---------- CSRF: cross-origin 상태변경 요청 차단 ----------
+H = {"X-Remote-User": "hong"}
+# 같은 오리진(test_client host=localhost)은 통과(차단 아님)
+r = client.post("/api/studio/sessions",
+                headers={**H, "Origin": "http://localhost"}, json={"title": "t"})
+assert r.status_code != 403, r.status_code
+# Origin 없는 요청(서버-서버)도 통과 (ci-callback 등, HMAC 별도 보호)
+r = client.post("/api/studio/sessions", headers=H, json={"title": "t"})
+assert r.status_code != 403, r.status_code
+# cross-origin은 403 (핸들러 도달 전 차단)
+r = client.post("/api/studio/sessions",
+                headers={**H, "Origin": "https://evil.example"}, json={"title": "t"})
+assert r.status_code == 403, r.status_code
+# GET은 CSRF 대상 아님 — cross-origin이어도 통과
+r = client.get("/api/studio/connections",
+               headers={**H, "Origin": "https://evil.example"})
+assert r.status_code == 200, r.status_code
+print("OK: CSRF — cross-origin 상태변경 403, same/no-origin·GET 통과")
+
 print("\nALL AUTH TESTS PASSED")

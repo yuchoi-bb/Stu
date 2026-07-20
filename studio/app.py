@@ -7,6 +7,7 @@
 import os
 import threading
 import uuid
+from urllib.parse import urlparse
 
 from flask import Flask, abort, jsonify, request
 
@@ -15,6 +16,21 @@ from .aws_sso import poll_device_flow, start_device_flow, start_refresh_schedule
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = config.ATTACH_MAX_BYTES
+
+_MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+@app.before_request
+def _csrf_guard():
+    """CSRF 방지 (§3.1): 인증이 Apache/Knox SSO 쿠키 기반이라, 상태 변경 요청은
+    cross-origin에서 브라우저가 쿠키를 붙여 위조될 수 있다. Origin이 있고 호스트가
+    다르면 차단한다. Origin이 없는 요청(ci-callback 등 서버-서버)은 통과 —
+    해당 경로는 HMAC로 별도 보호된다(§6.2). (Apache는 ProxyPreserveHost On 전제)"""
+    if request.method not in _MUTATING:
+        return
+    origin = request.headers.get("Origin")
+    if origin and urlparse(origin).netloc != request.host:
+        abort(403, "cross-origin 요청 차단 (CSRF 방지)")
 
 # 새 회차 제출 임계 구역 보호 (worker 1 단일 프로세스이므로 프로세스 락으로 충분).
 # 동시성 한도 체크→build INSERT, draft 승인 전이가 원자적으로 직렬화되어
