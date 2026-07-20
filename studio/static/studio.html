@@ -93,6 +93,15 @@
   .scan code{display:block;font-family:var(--mono);color:#9aa3b2;margin-top:2px}
   .inputbar{border-top:1px solid var(--line);padding:12px 20px;background:var(--bg2)}
   .lock-note{font-size:11.5px;color:var(--warn);margin-bottom:6px}
+  .attachrow{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
+  .attachchip{font-size:11px;background:var(--bg3);border:1px solid var(--line);
+        border-radius:12px;padding:2px 9px;color:#c8cede;font-family:var(--mono)}
+  .spin{display:inline-block;width:12px;height:12px;border:2px solid var(--line);
+        border-top-color:var(--accent);border-radius:50%;
+        animation:spin .8s linear infinite;vertical-align:middle;margin-right:6px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .runbar{padding:8px 14px;font-size:12px;color:#c8cede;
+        background:rgba(90,140,220,.08);border-bottom:1px solid var(--line)}
   .inputbox{display:flex;gap:10px;align-items:flex-end}
   .inputbox textarea{flex:1;resize:none;height:46px;background:var(--bg3);
         color:var(--fg);border:1px solid var(--line);border-radius:10px;
@@ -147,7 +156,12 @@
       <div class="msgs" id="msgs"></div>
       <div class="inputbar">
         <div class="lock-note" id="lockNote" style="display:none"></div>
+        <div class="attachrow" id="attachRow"></div>
         <div class="inputbox">
+          <input type="file" id="fileInput" style="display:none"
+                 accept=".pdf,.docx,.txt,.md" onchange="uploadFile(this)">
+          <button class="btn" id="attachBtn" title="문서 첨부 (PDF/DOCX/TXT/MD)"
+                  onclick="$('fileInput').click()">📎</button>
           <textarea id="input" placeholder="요구조건 또는 지시 입력..."
                     onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}"></textarea>
           <button class="btn primary" onclick="send()">전송</button>
@@ -246,10 +260,19 @@ function latestBuild() {
   const b = state.detail?.builds || [];
   return b.length ? b[b.length - 1] : null;
 }
+const runLabel = s => ({generating: "코드 생성 중…", pushing: "커밋·push 중…",
+  ci_running: "stage 빌드·검증 중…"}[s] || s);
 
 // ---------- 렌더 ----------
 function render() {
-  renderBadges(); renderSessions(); renderChat(); renderPanel();
+  renderBadges(); renderSessions(); renderChat(); renderPanel(); renderAttachments();
+}
+function renderAttachments() {
+  const row = $("attachRow");
+  const atts = state.detail?.attachments || [];
+  row.innerHTML = atts.map(a =>
+    `<span class="attachchip">📄 ${esc(a.filename)}</span>`).join("");
+  $("attachBtn").disabled = !state.sid;
 }
 function renderBadges() {
   $("adminBadge").style.display = state.conn.is_admin ? "" : "none";
@@ -350,6 +373,8 @@ function renderPanel() {
   $("panel").innerHTML = `
     <div><div class="p-title">STUDIO</div><div class="p-id">${esc(st.studio_id)}</div>
       <div class="hint">${esc(st.repo || "")} / ${esc(st.branch_name || "브랜치 미설정")}</div></div>
+    ${last && ["generating", "pushing", "ci_running"].includes(last.status)
+      ? `<div class="runbar"><span class="spin"></span>${runLabel(last.status)} (회차 #${last.attempt})</div>` : ""}
     <div class="p-sec"><h5>회차 이력 (1 studio : N build)</h5>${builds || '<div class="hint">아직 없음</div>'}</div>
     ${st.pr_url
       ? `<div class="p-sec"><h5>PR</h5><a class="btn" href="${esc(st.pr_url)}" target="_blank">PR #${st.pr_number} 열기 ↗</a>
@@ -375,6 +400,18 @@ async function newSession() {
   const title = prompt("작업 제목", "새 작업"); if (title === null) return;
   const r = await post("/sessions", {title});
   state.sid = r.session_id; await refresh();
+}
+async function uploadFile(input) {
+  const f = input.files[0]; if (!f || !state.sid) return;
+  const fd = new FormData(); fd.append("file", f);
+  $("attachBtn").disabled = true;
+  try {
+    // JSON 헬퍼(api)는 Content-Type을 강제하므로 멀티파트는 직접 fetch (same-origin)
+    const r = await fetch(`/api/studio/sessions/${state.sid}/attachments`,
+                          {method: "POST", body: fd});
+    if (!r.ok) throw new Error((await r.text()).slice(0, 200));
+  } catch (e) { alert("첨부 실패: " + e.message); }
+  input.value = ""; lastSig = null; await refresh();
 }
 async function send() {
   const text = $("input").value.trim(); if (!text || !state.sid) return;

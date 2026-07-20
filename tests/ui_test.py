@@ -45,6 +45,15 @@ try:
         page.click(".new-btn")
         page.wait_for_selector(".sess.active", timeout=8000)
 
+        # 첨부 업로드(B): 파일 선택 → 세션 첨부 칩 표시
+        att = os.path.join(SHOT, "spec.txt")
+        with open(att, "w") as fh:
+            fh.write("R1: 출력은 floor, 소수 3자리")
+        page.set_input_files("#fileInput", att)
+        page.wait_for_selector(".attachchip", timeout=8000)
+        assert "spec.txt" in page.locator(".attachchip").first.inner_text()
+        print("OK: 첨부 업로드 → 첨부 칩 표시")
+
         page.fill("#input", "parser 출력을 내림 처리로 바꿔줘")
         page.click("text=전송")
         page.wait_for_selector("textarea.req", timeout=15000)

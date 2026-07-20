@@ -329,10 +329,14 @@ def session_detail(session_id):
             "created_at, completed_at FROM builds WHERE studio_id=? ORDER BY attempt",
             (studio["studio_id"],))]
         can_pr = _can_pr(studio, builds)
+    attachments = [dict(a) for a in db.query(
+        "SELECT attachment_id, filename FROM attachments "
+        "WHERE session_id=? ORDER BY attachment_id", (session_id,))]
     return jsonify({"session": dict(session),
                     "studio": dict(studio) if studio else None,
                     "builds": builds,
                     "can_pr": can_pr,
+                    "attachments": attachments,
                     "draft": dict(draft) if draft else None})
 
 
