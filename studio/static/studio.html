@@ -112,6 +112,11 @@
   @keyframes spin{to{transform:rotate(360deg)}}
   .runbar{padding:8px 14px;font-size:12px;color:#c8cede;
         background:rgba(90,140,220,.08);border-bottom:1px solid var(--line)}
+  .pwarn{font-size:11.5px;padding:7px 10px;margin:8px 0;border-radius:6px;
+        background:rgba(224,166,60,.1);color:var(--warn);
+        border:1px solid rgba(224,166,60,.3)}
+  .pwarn.hi{background:rgba(208,80,80,.1);color:#e59a9a;
+        border-color:rgba(208,80,80,.3)}
   .inputbox{display:flex;gap:10px;align-items:flex-end}
   .inputbox textarea{flex:1;resize:none;height:46px;background:var(--bg3);
         color:var(--fg);border:1px solid var(--line);border-radius:10px;
@@ -413,10 +418,18 @@ function lineDiff(oldText, newText) {
   while (j < m) out.push({t: "+", l: b[j++]});
   return out;
 }
+function warnBanner() {
+  const d = state.detail || {};
+  let h = "";
+  if (d.analysis_warn) h += `<div class="pwarn">🧭 ${esc(d.analysis_warn)}</div>`;
+  if (d.attempt_warn)
+    h += `<div class="pwarn hi">🔁 회차가 많이 반복됐습니다 — 코드가 아니라 요구조건 문제일 수 있어요. Step 2 재확정을 검토하세요.</div>`;
+  return h;
+}
 function renderPanel() {
   const st = state.detail?.studio;
   if (!st) {
-    $("panel").innerHTML = `<div class="p-title">STUDIO</div>
+    $("panel").innerHTML = `<div class="p-title">STUDIO</div>${warnBanner()}
       <div class="hint">진행 중인 studio 없음.<br>요구조건을 입력하면 Step 2(확정 게이트)부터 시작합니다.</div>`;
     return;
   }
@@ -428,6 +441,7 @@ function renderPanel() {
   $("panel").innerHTML = `
     <div><div class="p-title">STUDIO</div><div class="p-id">${esc(st.studio_id)}</div>
       <div class="hint">${esc(st.repo || "")} / ${esc(st.branch_name || "브랜치 미설정")}</div></div>
+    ${warnBanner()}
     ${last && ["generating", "pushing", "ci_running"].includes(last.status)
       ? `<div class="runbar"><span class="spin"></span>${runLabel(last.status)} (회차 #${last.attempt})</div>` : ""}
     <div class="p-sec"><h5>회차 이력 (1 studio : N build)</h5>${builds || '<div class="hint">아직 없음</div>'}</div>
@@ -453,7 +467,16 @@ const esc = s => (s || "").replace(/[&<>"']/g,
 async function selectSession(id) { state.sid = id; state.reviewBuild = null; await refresh(); }
 async function newSession() {
   const title = prompt("작업 제목", "새 작업"); if (title === null) return;
-  const r = await post("/sessions", {title});
+  let tool = null;
+  try {
+    const tools = await api("/tools");
+    if (tools.length) {
+      const names = tools.map(t => t.tool_name).join(", ");
+      const pick = prompt(`대상 tool (분석 md 로드용, 없으면 빈칸)\n등록: ${names}`, "");
+      tool = (pick && pick.trim()) || null;
+    }
+  } catch (e) { /* tools 조회 실패는 무시 — tool 미지정으로 진행 */ }
+  const r = await post("/sessions", {title, tool_target: tool});
   state.sid = r.session_id; await refresh();
 }
 async function uploadFile(input) {

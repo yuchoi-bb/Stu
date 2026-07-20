@@ -510,12 +510,14 @@ studio를 채택(`done`)·포기(`abandoned`)하거나 **재확정으로 새 stu
 
 ### 설계 재검토 — 남은 열린 질문 (파일럿 전 판단)
 
-- **회차 무한 반복**: CI 실패 루프가 수렴하지 않을 때 상한/경고가 없다. 소프트 캡
-  (예: N회 후 "요구조건 재확정 권장" 배너)을 둘지 파일럿 관찰 후 결정.
+- [x] **회차 무한 반복**: 소프트 캡 구현 — 회차가 `MAX_ATTEMPTS_SOFT`(기본 5) 이상이면
+  session_detail이 `attempt_warn`을 반환, STUDIO 패널에 "요구조건 재확정 권장" 배너
+  (강제 아님). 폭주 토큰 방지.
+- [x] **분석 md 미매핑 tool**: `analysis.status_warning` — 대상 tool 미지정/매핑 없음이면
+  `analysis_warn`으로 경고. 세션 생성 시 `/tools`에서 등록 tool 선택 가능(tool_target).
+  (stale 경고는 생성 시점 별도 유지)
 - **회차 누적 컨텍스트 증가**: 회차마다 이전 코드+fail_summary를 누적 주입 →
-  토큰 증가. 멀티턴 요약(maybe_summarize)은 대화만 요약 — 생성 컨텍스트 상한 정책 검토.
-- **분석 md 미매핑 tool**: 매핑이 없으면 Step 1이 비어 품질 저하. "분석 md 없음" 경고를
-  Step 2에 노출할지 검토(현재 stale 경고만 있음).
+  토큰 증가. 멀티턴 요약(maybe_summarize)은 대화만 요약 — 생성 컨텍스트 상한 정책 검토(미결).
 - **fetch_originals 실패 시 폴백**: GHE fetch 실패면 원문 없이 생성 → push 시 blob
   가드가 `push_conflict`로 표면화(동작은 안전). 사용자 안내 문구 개선 여지.
 

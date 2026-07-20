@@ -34,6 +34,8 @@ DEFAULT_REPO = os.environ.get("STUDIO_DEFAULT_REPO", "thr")
 # 작업 모델 (§4.3)
 EXECUTOR_WORKERS = 8
 MAX_CONCURRENT_PER_USER = 1                  # §4.2: 사용자당 동시 진행 1건
+# 회차 소프트 캡(§6.7): 이 횟수 이상 반복하면 "요구조건 재확정 권장" 경고(강제 아님)
+MAX_ATTEMPTS_SOFT = int(os.environ.get("STUDIO_MAX_ATTEMPTS_SOFT", "5"))
 
 # 멀티턴 히스토리 (§4.2): 최근 N턴 원문 + 이전 요약
 HISTORY_RECENT_TURNS = 6

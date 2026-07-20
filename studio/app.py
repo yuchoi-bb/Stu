@@ -332,12 +332,24 @@ def session_detail(session_id):
     attachments = [dict(a) for a in db.query(
         "SELECT attachment_id, filename FROM attachments "
         "WHERE session_id=? ORDER BY attachment_id", (session_id,))]
+    from . import analysis
     return jsonify({"session": dict(session),
                     "studio": dict(studio) if studio else None,
                     "builds": builds,
                     "can_pr": can_pr,
                     "attachments": attachments,
+                    # ① 회차 소프트 캡 경고, ② 분석 md 미매핑 경고 (§6.7)
+                    "attempt_warn": len(builds) >= config.MAX_ATTEMPTS_SOFT,
+                    "analysis_warn": analysis.status_warning(session_id),
                     "draft": dict(draft) if draft else None})
+
+
+@app.get("/api/studio/tools")
+def list_tools():
+    """세션 생성 시 대상 tool 선택용 — 등록된 분석 md 매핑 목록."""
+    current_user()
+    return jsonify([dict(r) for r in db.query(
+        "SELECT tool_name, repo FROM tool_analysis ORDER BY tool_name")])
 
 
 @app.get("/studio")

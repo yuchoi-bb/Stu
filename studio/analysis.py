@@ -45,6 +45,22 @@ def load_for_session(session_id: str, user_id: str) -> tuple[str | None, str | N
     return context, warn
 
 
+def status_warning(session_id: str) -> str | None:
+    """Step 2 사전 안내(§6.7): 분석 md가 로드될 수 없는 상태면 품질 저하 경고.
+
+    - 대상 tool 미지정: 분석 md 없이 생성 → 품질 저하.
+    - tool 지정됐으나 매핑 없음: 관리자 매핑 필요.
+    정상(매핑 존재)이면 None. stale 경고는 생성 시점(load_for_session)에서 별도 처리.
+    """
+    sess = db.one("SELECT tool_target FROM sessions WHERE session_id=?", (session_id,))
+    if not sess or not sess["tool_target"]:
+        return "대상 tool 미지정 — 분석 md 없이 생성되어 코드 품질이 낮을 수 있습니다."
+    if get_mapping(sess["tool_target"]) is None:
+        return (f"tool '{sess['tool_target']}' 분석 md 미등록 — "
+                "관리자에게 매핑 요청(품질 저하 가능).")
+    return None
+
+
 def _fetch_md_and_head(user_id: str, mapping):
     """GHE에서 분석 md 원문 + repo HEAD SHA 조회. GHE 미연결/오류 시 (None, None)."""
     try:
