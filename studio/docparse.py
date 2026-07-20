@@ -7,7 +7,7 @@
 import os
 import zipfile
 
-from . import config, db, logs
+from . import db, logs
 
 _log = logs.get("docparse")
 
@@ -31,7 +31,8 @@ def extract_text(path: str, mime_type: str | None, filename: str) -> str:
         if ext == ".docx" or (mime_type or "").endswith("wordprocessingml.document"):
             return _read_docx(path)
         if ext in (".hwp", ".hwpx"):
-            return f"[HWP 미지원: {filename} — 추출 도구 미도입(§12.1). 텍스트로 변환 후 재첨부 필요]"
+            return (f"[HWP 미지원: {filename} — 추출 도구 미도입(§12.1). "
+                    "텍스트로 변환 후 재첨부 필요]")
         return f"[미지원 포맷: {filename} ({ext or mime_type}) — 텍스트 추출 생략]"
     except Exception as e:
         return f"[추출 실패: {filename} — {e}]"

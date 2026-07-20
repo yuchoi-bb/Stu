@@ -22,7 +22,7 @@ os.environ["STUDIO_CI_WEBHOOK_SECRET"] = "test-secret"
 
 from studio.app import app                          # noqa: E402
 from studio import db, ghe, jobs, pipeline          # noqa: E402
-from studio.ghe_git import (PushConflict, WorkflowGuardViolation,  # noqa: E402
+from studio.ghe_git import (WorkflowGuardViolation,  # noqa: E402
                             commit_and_push)
 
 client = app.test_client()

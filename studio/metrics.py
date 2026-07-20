@@ -1,5 +1,5 @@
 """미터링/성공 지표 (§10) + 멀티턴 요약 (§4.2)."""
-from . import config, db, prompts
+from . import config, db
 
 
 def admin_count() -> int:

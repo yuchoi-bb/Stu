@@ -9,7 +9,9 @@ import time
 
 import requests
 
-from . import logs
+from . import config, crypto, db, jobs, logs
+from .ghe_git import (PushConflict, UnsafePath, WorkflowGuardViolation,
+                      commit_and_push)
 
 _log = logs.get("ghe")
 
@@ -32,10 +34,6 @@ def _http_retry(fn, *, tries: int = 3, base: float = 2.0):
     if isinstance(last, Exception):
         raise last
     return r
-
-from . import config, crypto, db, jobs
-from .ghe_git import (PushConflict, UnsafePath, WorkflowGuardViolation,
-                      commit_and_push)
 
 _oauth_states: dict[str, str] = {}   # state -> user_id (단일 프로세스, worker 1)
 

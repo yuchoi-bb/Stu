@@ -10,11 +10,9 @@ import time
 
 import boto3
 
-from . import logs
+from . import config, crypto, db, logs
 
 _log = logs.get("aws_sso")
-
-from . import config, crypto, db
 
 _lock = threading.Lock()
 _pending = {}   # user_id -> device flow 진행 상태 (승인 폴링용)

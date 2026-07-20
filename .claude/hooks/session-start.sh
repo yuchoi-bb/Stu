@@ -15,4 +15,8 @@ python3 -m pip install --quiet --disable-pip-version-check -r requirements-dev.t
 # tests가 studio 패키지를 임포트할 수 있도록 프로젝트 루트를 경로에 추가
 echo 'export PYTHONPATH="."' >> "${CLAUDE_ENV_FILE:-/dev/null}"
 
+# 린트 상태 안내 (비차단 — 세션은 계속 진행)
+ruff check . >/dev/null 2>&1 && echo "session-start: 린트 통과" \
+  || echo "session-start: ⚠ 린트 경고 있음 (ruff check .)"
+
 echo "session-start: 의존성 설치 완료"

@@ -26,9 +26,7 @@ def _init():
 
 def cmd_health(_):
     import shutil
-    import threading
     print("db:", "ok" if db.one("SELECT 1") else "error")
-    alive = {t.name for t in threading.enumerate()}
     print("refresh_scheduler:", "n/a (앱 프로세스에서만 구동)")
     from . import config
     free = shutil.disk_usage(config.BASE_DIR).free

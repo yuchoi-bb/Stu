@@ -25,7 +25,6 @@ os.environ["STUDIO_CI_WEBHOOK_SECRET"] = "demo-secret"
 
 from studio.app import app                    # noqa: E402
 from studio import db, ghe, jobs, pipeline    # noqa: E402
-from studio import ghe_git                    # noqa: E402
 
 # ---------- 외부 경계만 mock ----------
 jobs.submit = lambda fn, *a, **k: fn(*a, **k)   # 백그라운드 작업을 동기로

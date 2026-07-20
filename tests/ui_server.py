@@ -13,7 +13,7 @@ os.environ["STUDIO_DEV_USER"] = "hong"
 
 from studio import db, ghe, pipeline  # noqa: E402
 from studio.app import app             # noqa: E402
-from flask import jsonify, request     # noqa: E402
+from flask import jsonify     # noqa: E402
 
 DRAFT = ("## R1. 출력 내림 처리\n- floor, 소수 3자리 기준\n\n"
          "## 확인 필요\n- 음수 입력의 내림 방향?\n")

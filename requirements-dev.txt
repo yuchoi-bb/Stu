@@ -1,3 +1,4 @@
 # 개발/테스트 의존성
 -r requirements.txt
 playwright>=1.40    # UI E2E (tests/ui_test.py). Chromium은 /opt/pw-browsers 사용
+ruff>=0.15         # 린터 (설정: ruff.toml). 실행: ruff check .

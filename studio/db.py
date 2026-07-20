@@ -25,10 +25,12 @@ def get_conn() -> sqlite3.Connection:
 # 새 컬럼을 추가하지 않으므로, 개발 중 추가된 컬럼을 idempotent ALTER로 보정한다.
 # (table, column, DDL) — 이미 있으면 조용히 건너뛴다.
 _MIGRATIONS = [
-    ("users", "auto_approve", "ALTER TABLE users ADD COLUMN auto_approve INTEGER NOT NULL DEFAULT 0"),
+    ("users", "auto_approve",
+     "ALTER TABLE users ADD COLUMN auto_approve INTEGER NOT NULL DEFAULT 0"),
     ("sessions", "summary", "ALTER TABLE sessions ADD COLUMN summary TEXT"),
     ("studios", "requirements", "ALTER TABLE studios ADD COLUMN requirements TEXT"),
-    ("builds", "cancel_requested", "ALTER TABLE builds ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0"),
+    ("builds", "cancel_requested",
+     "ALTER TABLE builds ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0"),
     ("builds", "fail_summary", "ALTER TABLE builds ADD COLUMN fail_summary TEXT"),
     ("build_files", "base_blob_sha", "ALTER TABLE build_files ADD COLUMN base_blob_sha TEXT"),
     ("build_files", "pushed_blob_sha", "ALTER TABLE build_files ADD COLUMN pushed_blob_sha TEXT"),
