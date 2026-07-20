@@ -86,7 +86,7 @@ def run_generation(user_id: str, session_id: str, studio_id: str,
                                   fail_summary="생성 결과에 파일 블록 없음 "
                                                "(```file:path 형식 미준수)")
             return
-        store_build_files(build_id, studio_id, files, base_blobs)
+        store_build_files(build_id, studio_id, files, base_blobs, base_files)
 
         # 위험 패턴 정적 검사 게이트 (§12.4) — 결과 저장 + 대화 주입
         from . import scan
@@ -146,9 +146,14 @@ def parse_file_blocks(text: str) -> dict[str, str]:
 
 
 def store_build_files(build_id: int, studio_id: str, files: dict[str, str],
-                      base_blobs: dict[str, str | None] | None = None) -> None:
-    """파일 저장 + 라인 수 급감 경고 + base blob SHA 기록 (§7.1 회귀 가드, §6.5)."""
+                      base_blobs: dict[str, str | None] | None = None,
+                      base_files: dict[str, str] | None = None) -> None:
+    """파일 저장 + 라인 수 급감 경고 + base blob SHA/원문 기록 (§7.1 회귀 가드, §6.5).
+
+    base_files: 2-pass에서 fetch한 수정 파일 원문 {path: content} — 리뷰 diff 뷰용.
+    """
     base_blobs = base_blobs or {}
+    base_files = base_files or {}
     for path, content in files.items():
         lines = content.count("\n") + 1
         prev = db.one(
@@ -160,11 +165,13 @@ def store_build_files(build_id: int, studio_id: str, files: dict[str, str],
         warn = 1 if (prev and lines < prev["line_count"] * (1 - SHRINK_WARN_RATIO)) else 0
         db.execute(
             "INSERT INTO build_files (build_id, path, content, line_count, "
-            "shrink_warn, base_blob_sha) VALUES (?,?,?,?,?,?) "
+            "shrink_warn, base_blob_sha, base_content) VALUES (?,?,?,?,?,?,?) "
             "ON CONFLICT(build_id, path) DO UPDATE SET "
             "content=excluded.content, line_count=excluded.line_count, "
-            "shrink_warn=excluded.shrink_warn, base_blob_sha=excluded.base_blob_sha",
-            (build_id, path, content, lines, warn, base_blobs.get(path)))
+            "shrink_warn=excluded.shrink_warn, base_blob_sha=excluded.base_blob_sha, "
+            "base_content=excluded.base_content",
+            (build_id, path, content, lines, warn, base_blobs.get(path),
+             base_files.get(path)))
 
 
 def _fetch_originals(user_id, studio, analysis_ctx, session_id, studio_id,

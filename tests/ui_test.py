@@ -78,6 +78,20 @@ try:
         assert page.locator(".scan.high").count() >= 1
         print("OK: 정적 검사 — high 위험 패턴 경고 + 스캔 항목 표시")
 
+        # 회차별 diff 뷰(A): 수정 파일(src/parser.c)은 원문 대비 diff
+        assert page.locator(".diffbody").count() >= 1
+        assert page.locator(".diffbody .add").count() >= 1
+        assert page.locator(".diffbody .del").count() >= 1
+        page.screenshot(path=f"{SHOT}/ui_diff.png")
+        print("OK: 수정 파일 원문 대비 diff (+추가/-삭제 라인)")
+        page.click("text=전문 보기")
+        page.wait_for_selector(".filebody", timeout=5000)
+        print("OK: diff ↔ 전문 토글")
+        page.locator(".ftab").nth(1).click()   # 신규 파일 탭
+        page.wait_for_selector(".fbar >> text=새 파일", timeout=5000)
+        print("OK: 신규 파일 '새 파일' 표시")
+        page.locator(".ftab").nth(0).click()   # 다시 parser.c로
+
         assert page.locator(".p-id").inner_text().startswith("ST-")
         assert "awaiting_review" in page.locator(".panel").inner_text()
 

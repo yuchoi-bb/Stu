@@ -514,7 +514,7 @@ def studio_status(studio_id):
 def build_files(build_id):
     b = _own_build(build_id)
     rows = db.query(
-        "SELECT path, content, line_count, shrink_warn FROM build_files "
+        "SELECT path, content, line_count, shrink_warn, base_content FROM build_files "
         "WHERE build_id=? ORDER BY path", (build_id,))
     # 위험 패턴 정적 검사 결과(§12.4)를 파일별로 붙여 리뷰 카드에 노출
     import json as _json

@@ -130,6 +130,7 @@ CREATE TABLE IF NOT EXISTS build_files (
     line_count INTEGER NOT NULL,
     shrink_warn INTEGER NOT NULL DEFAULT 0,  -- 라인 수 급감 경고 (회귀 가드)
     base_blob_sha TEXT,   -- 원문 fetch 시점 blob SHA (§6.5 조용한 덮어쓰기 가드)
+    base_content TEXT,    -- 수정 파일의 원문 (리뷰 diff 뷰용, 신규 파일은 NULL)
     pushed_blob_sha TEXT, -- 커밋 후 git 실제 blob SHA (다음 회차 base, 정규화 불일치 방지)
     UNIQUE (build_id, path)
 );

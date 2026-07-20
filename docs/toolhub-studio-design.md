@@ -546,7 +546,9 @@ Step 3. 코드 + testcase 생성 — 신규/수정 구분
      pass 2: Studio가 GHE에서 해당 원문 fetch → 컨텍스트 추가 → 재호출
   · 쓰기 전략: **파일 전체 교체** (diff/patch 적용은 어긋남 위험 → 미채택)
   · 회귀 경고 가드 (MVP): 교체본이 직전 회차(신규면 원문) 대비 라인 수 급감(예: 30%↑)
-    시 push 전 경고 — LLM의 중간 생략/내용 누락 감지. diff 미리보기 UI는 추후(§12.5)
+    시 push 전 경고 — LLM의 중간 생략/내용 누락 감지. **회차별 diff 뷰**: 수정 파일은
+    원문(2-pass fetch) 대비 라인 diff(+추가/-삭제)를 리뷰 카드에 표시(전문 토글), 신규
+    파일은 "새 파일"로 구분 — 전체 교체 방식에서 무엇이 지워졌는지 사람이 바로 확인
   · 필요 시 사용자가 직접 파일 지정 추가 주입 (옵션)
 
 Step 3.5. 코드 리뷰 게이트 (stage 전달 전) ★
@@ -720,7 +722,7 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
 - [x] webhook 유실 대비 run_id 기준 폴링 fallback — 폴러 스레드 구현
 - [x] 취소 전파 구현 (§6.2): 사용자 취소 시 run cancel API 호출 + 새 회차 dispatch 직전 이전 회차 선제 cancelled 마킹 — 테스트 통과
 - [x] CI 로그 요약 → 대화 자동 주입 — fail_summary 주입 구현 (stage 측 로그 추출 규칙은 조율 필요)
-- [x] Step 3.5 코드 리뷰 게이트: 생성 파일 표시 + 승인/거부 + 승인 모드 설정 + awaiting_review 상태 — E2E 통과 (diff 뷰는 전체 내용 표시, 원문 대비 diff는 2-pass 후)
+- [x] Step 3.5 코드 리뷰 게이트: 생성 파일 표시 + 승인/거부 + 승인 모드 설정 + awaiting_review 상태 — E2E 통과 (**수정 파일은 원문 대비 diff 뷰**, 신규 파일 구분)
 - [x] push 충돌 처리 (§6.5): 원격 HEAD 기반 커밋 + 1회 재시도 + **blob SHA 가드(조용한 덮어쓰기 차단)** + push_conflict 상태/안내 — 테스트 통과
 - [x] Step 3 2-pass 구현: 수정 대상 파일 지목(pass 1, select_files 프롬프트) → GHE 원문 fetch → base_blob_sha 기록 → 재호출(pass 2). 신규 생성만이면 fetch 생략. 라인 수 급감 경고 포함 — 테스트 통과
 - [x] Bedrock 429 백오프 + push·dispatch·cancel HTTP 재시도(5xx 3회 지수 백오프, 4xx 즉시) — 테스트 통과
@@ -777,4 +779,6 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
 - [ ] 세션당 턴 수 상한 조정 / 요약 품질 개선
 - [ ] main 머지 시 분석 md 자동 재생성 파이프라인 (stale 근본 해결)
 - [ ] Step 3에 특정 파일 원문 추가 주입 옵션 UI
-- [ ] 회차별 diff 미리보기 UI (push 전 사용자 확인 — 경고 가드의 상위 버전)
+- [x] 회차별 diff 미리보기 UI (push 전 사용자 확인 — 경고 가드의 상위 버전) —
+      build_files.base_content(2-pass 원문) 저장 + 리뷰 카드 LCS 라인 diff + 전문 토글,
+      신규 파일 구분. E2E 통과

@@ -86,6 +86,16 @@
            color:var(--warn);border-bottom:1px solid var(--line)}
   .filebody{font-family:var(--mono);font-size:12px;white-space:pre;
             overflow:auto;max-height:260px;padding:10px 14px;color:#c8cede}
+  .diffbody{font-family:var(--mono);font-size:12px;white-space:pre;
+            overflow:auto;max-height:300px;padding:4px 0}
+  .diffbody .dl{padding:0 14px}
+  .diffbody .add{background:rgba(80,200,120,.12);color:#8fe0a8}
+  .diffbody .del{background:rgba(208,80,80,.12);color:#e59a9a}
+  .diffbody .ctx{color:#8a92a2}
+  .fbar{display:flex;gap:8px;align-items:center;padding:5px 14px;font-size:11px;
+        color:#8a92a2;border-bottom:1px solid var(--line)}
+  .fbar .tog{margin-left:auto;cursor:pointer;color:var(--accent)}
+  .fbar .np{color:#8fe0a8}  .fbar .nm{color:#e59a9a}
   .scanbox{border-bottom:1px solid var(--line);max-height:150px;overflow:auto}
   .scan{padding:5px 14px;font-size:11.5px;border-left:3px solid var(--line)}
   .scan.high{border-left-color:#d05050;background:rgba(208,80,80,.08)}
@@ -216,7 +226,7 @@
 <script>
 const $ = id => document.getElementById(id);
 let state = {sessions: [], sid: null, detail: null, msgs: [], conn: {},
-             reviewFiles: null, reviewBuild: null, activeTab: 0};
+             reviewFiles: null, reviewBuild: null, activeTab: 0, showFull: false};
 let lastSig = null;   // 데이터 변경 시에만 재렌더 (클릭 경합/편집 초기화 방지)
 
 async function api(path, opts) {
@@ -243,7 +253,7 @@ async function refresh() {
       if (rb && rb.status === "awaiting_review") {
         if (state.reviewBuild !== rb.build_id) {
           state.reviewFiles = await api("/builds/" + rb.build_id + "/files");
-          state.reviewBuild = rb.build_id; state.activeTab = 0;
+          state.reviewBuild = rb.build_id; state.activeTab = 0; state.showFull = false;
         }
       } else { state.reviewFiles = null; state.reviewBuild = null; }
     }
@@ -352,11 +362,56 @@ function reviewCard() {
       : anyScan ? `<div class="warnbar">⚠ 정적 검사: 확인 권장 항목이 있습니다 (파일 탭 참고)</div>` : ""}
     ${warn ? `<div class="warnbar">⚠ 회귀 경고: 라인 수가 직전 회차 대비 급감한 파일이 있습니다 — 내용 누락 확인</div>` : ""}
     ${scanList}
-    <div class="filebody">${esc(cur ? cur.content : "")}</div>
+    ${fileView(cur)}
     <div class="foot">
       <button class="btn danger" onclick="reviewBuild('reject')">거부 (사유)</button>
       <button class="btn primary" onclick="reviewBuild('approve')">승인 → push + 검증</button>
     </div></div>`;
+}
+// 파일 뷰: 수정 파일이면 원문 대비 diff(기본), 신규 파일이면 전문.
+function fileView(f) {
+  if (!f) return `<div class="filebody"></div>`;
+  const isMod = f.base_content != null;
+  if (!isMod)
+    return `<div class="fbar"><span class="np">＋ 새 파일</span></div>`
+         + `<div class="filebody">${esc(f.content)}</div>`;
+  if (state.showFull)
+    return `<div class="fbar">수정 파일 · 전문 보기<span class="tog" onclick="state.showFull=false;lastSig=null;render()">↔ diff 보기</span></div>`
+         + `<div class="filebody">${esc(f.content)}</div>`;
+  const d = lineDiff(f.base_content, f.content);
+  if (!d)   // 너무 커서 diff 생략
+    return `<div class="fbar">수정 파일(diff 생략 — 큰 파일)<span class="tog" onclick="state.showFull=true;lastSig=null;render()">전문 보기</span></div>`
+         + `<div class="filebody">${esc(f.content)}</div>`;
+  let add = 0, del = 0;
+  for (const x of d) { if (x.t === "+") add++; else if (x.t === "-") del++; }
+  const rows = d.map(x => {
+    const cls = x.t === "+" ? "add" : x.t === "-" ? "del" : "ctx";
+    const sign = x.t === " " ? " " : x.t;
+    return `<div class="dl ${cls}">${sign} ${esc(x.l)}</div>`;
+  }).join("");
+  return `<div class="fbar">원문 대비 diff <span class="np">+${add}</span> / <span class="nm">-${del}</span>`
+       + `<span class="tog" onclick="state.showFull=true;lastSig=null;render()">전문 보기</span></div>`
+       + `<div class="diffbody">${rows}</div>`;
+}
+// LCS 기반 라인 diff. 너무 크면(2000x2000 초과) null 반환 → 호출부가 전문 표시.
+function lineDiff(oldText, newText) {
+  const a = (oldText || "").split("\n"), b = (newText || "").split("\n");
+  const n = a.length, m = b.length;
+  if (n * m > 4000000) return null;
+  const dp = Array.from({length: n + 1}, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1
+                               : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const out = []; let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { out.push({t: " ", l: a[i]}); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({t: "-", l: a[i]}); i++; }
+    else { out.push({t: "+", l: b[j]}); j++; }
+  }
+  while (i < n) out.push({t: "-", l: a[i++]});
+  while (j < m) out.push({t: "+", l: b[j++]});
+  return out;
 }
 function renderPanel() {
   const st = state.detail?.studio;
