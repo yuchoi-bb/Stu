@@ -1,0 +1,3 @@
+# 개발/테스트 의존성
+-r requirements.txt
+playwright>=1.40    # UI E2E (tests/ui_test.py). Chromium은 /opt/pw-browsers 사용
