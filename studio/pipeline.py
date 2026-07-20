@@ -11,7 +11,7 @@ from .bedrock import AwsNotConnected, invoke_claude, response_text
 
 _log = logs.get("pipeline")
 
-FILE_BLOCK_RE = re.compile(r"```file:(?P<path>[^\n]+)\n(?P<body>.*?)```", re.DOTALL)
+FILE_START_RE = re.compile(r"```file:(.+)")
 PATHS_BLOCK_RE = re.compile(r"```paths\n(?P<body>.*?)```", re.DOTALL)
 SHRINK_WARN_RATIO = 0.30   # 직전 회차 대비 30% 이상 감소 시 경고 (§7.1)
 
@@ -119,11 +119,29 @@ def run_generation(user_id: str, session_id: str, studio_id: str,
 
 
 def parse_file_blocks(text: str) -> dict[str, str]:
-    """```file:path ...``` 블록 추출 (프롬프트 규격, prompt_files/generate.md)."""
+    """```file:path ...``` 블록 추출 (프롬프트 규격, prompt_files/generate.md).
+
+    라인 단위 파서 — 블록은 **단독 ``` 라인**에서만 닫는다. 파일 내용에 인라인
+    ```가 있어도(예: `s = "```"`, docstring) 잘리지 않는다. (정규식 non-greedy는
+    첫 ```에서 잘려 파일이 조용히 손상되던 버그를 대체.)
+    """
     files = {}
-    for m in FILE_BLOCK_RE.finditer(text):
-        path = m.group("path").strip()
-        files[path] = m.group("body")
+    lines = text.split("\n")
+    i, n = 0, len(lines)
+    while i < n:
+        m = FILE_START_RE.match(lines[i])
+        if not m:
+            i += 1
+            continue
+        path = m.group(1).strip()
+        i += 1
+        body = []
+        while i < n and lines[i].rstrip() != "```":
+            body.append(lines[i])
+            i += 1
+        # 파일은 관례상 개행으로 끝난다 — 닫는 ``` 앞의 개행을 복원
+        files[path] = ("\n".join(body) + "\n") if body else ""
+        i += 1   # 닫는 ``` 라인 건너뜀
     return files
 
 
