@@ -500,6 +500,25 @@ CI pass 산출물의 main 반영 방식. 브랜치가 본인 소유이므로:
 - UI: 회차 중 `pass`가 있고 아직 PR이 없으면 STUDIO 패널에 "PR 생성" 버튼,
   생성 후에는 "PR #N 열기 ↗" 링크로 전환 (status 응답의 `can_pr` 플래그).
 
+### 6.7 studio 종결 시 취소 전파 (설계 재검토 반영)
+
+studio를 채택(`done`)·포기(`abandoned`)하거나 **재확정으로 새 studio_id를 발급**하면,
+기존 studio의 **진행 중 회차(generating/awaiting_review/pushing/ci_running)를 모두
+취소**한다(`ghe.cancel_studio_inflight`). abandoned 마킹만으로는 stage가 계속 빌드·
+검증해 격리 runner를 낭비하고, 뒤늦은 CI 콜백이 죽은 studio에 적용되려 한다(멱등
+가드가 막지만 낭비는 남는다). ci_running이면 stage에 취소 시그널도 보낸다(§6.2 일관).
+
+### 설계 재검토 — 남은 열린 질문 (파일럿 전 판단)
+
+- **회차 무한 반복**: CI 실패 루프가 수렴하지 않을 때 상한/경고가 없다. 소프트 캡
+  (예: N회 후 "요구조건 재확정 권장" 배너)을 둘지 파일럿 관찰 후 결정.
+- **회차 누적 컨텍스트 증가**: 회차마다 이전 코드+fail_summary를 누적 주입 →
+  토큰 증가. 멀티턴 요약(maybe_summarize)은 대화만 요약 — 생성 컨텍스트 상한 정책 검토.
+- **분석 md 미매핑 tool**: 매핑이 없으면 Step 1이 비어 품질 저하. "분석 md 없음" 경고를
+  Step 2에 노출할지 검토(현재 stale 경고만 있음).
+- **fetch_originals 실패 시 폴백**: GHE fetch 실패면 원문 없이 생성 → push 시 blob
+  가드가 `push_conflict`로 표면화(동작은 안전). 사용자 안내 문구 개선 여지.
+
 ---
 
 ## 7. 생성 파이프라인 (Step 정의)

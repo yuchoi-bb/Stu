@@ -418,6 +418,12 @@ def approve_requirements(draft_id):
         conn.commit()
         if cur.rowcount != 1:
             abort(409, "이미 처리된 draft")
+        # 재확정(E): 기존 open studio를 abandoned 처리하기 전에, 그 진행 중 회차와
+        # stage CI를 취소한다 (§6.2 — 죽은 studio의 고아 CI 방지).
+        from . import ghe
+        for old in db.query("SELECT studio_id, repo FROM studios "
+                            "WHERE session_id=? AND status='open'", (session_id,)):
+            ghe.cancel_studio_inflight(old["studio_id"], user_id, old["repo"])
         db.execute("UPDATE studios SET status='abandoned', "
                    "completed_at=datetime('now') "
                    "WHERE session_id=? AND status='open'", (session_id,))
@@ -562,16 +568,19 @@ def set_approval_mode():
 
 @app.post("/api/studio/studios/<studio_id>/close")
 def close_studio(studio_id):
-    """studio 종결: done(채택) 또는 abandoned(포기)."""
-    row = db.one("SELECT user_id, status FROM studios WHERE studio_id=?", (studio_id,))
+    """studio 종결: done(채택) 또는 abandoned(포기). 진행 중 회차는 취소(§6.2)."""
+    row = db.one("SELECT user_id, status, repo FROM studios WHERE studio_id=?",
+                 (studio_id,))
     if row is None or row["user_id"] != current_user():
         abort(404)
     status = (request.get_json(force=True) or {}).get("status", "done")
     if status not in ("done", "abandoned"):
         abort(400)
+    from . import ghe
+    cancelled = ghe.cancel_studio_inflight(studio_id, row["user_id"], row["repo"])
     db.execute("UPDATE studios SET status=?, completed_at=datetime('now') "
                "WHERE studio_id=?", (status, studio_id))
-    return jsonify({"status": status})
+    return jsonify({"status": status, "cancelled_builds": cancelled})
 
 
 @app.post("/api/studio/studios/<studio_id>/create-pr")

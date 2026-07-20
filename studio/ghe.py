@@ -270,6 +270,29 @@ def run_push(build_id: int) -> None:
                               fail_summary=f"push error: {e}")
 
 
+def cancel_studio_inflight(studio_id: str, user_id: str, repo: str) -> int:
+    """studio 종결(채택/포기·재확정)  시 진행 중인 회차를 모두 취소한다 (§6.2).
+
+    abandoned 처리만으로는 stage가 계속 빌드·검증해 격리 runner를 낭비하고,
+    CI 콜백이 죽은 studio에 결과를 적용하려 한다. 진행 중 회차를 cancelled로
+    마킹하고 ci_running이면 stage에 취소 시그널을 보낸다. 반환: 취소한 회차 수.
+    """
+    rows = db.query(
+        "SELECT build_id, run_id, status FROM builds WHERE studio_id=? AND status IN "
+        "('generating','awaiting_review','pushing','ci_running')", (studio_id,))
+    for r in rows:
+        jobs.request_cancel(r["build_id"])   # 실행 중 스레드의 체크포인트 대비
+        jobs.set_build_status(r["build_id"], "cancelled", completed=True)
+        if r["status"] == "ci_running" and r["run_id"]:
+            try:
+                cancel_run(user_id, repo, r["run_id"])
+            except Exception:
+                _log.warning("studio 종결 취소 시그널 실패 run=%s", r["run_id"])
+    if rows:
+        _log.info("studio %s 종결 — 진행 회차 %d개 취소", studio_id, len(rows))
+    return len(rows)
+
+
 def _cancel_superseded(studio_id: str, attempt: int, user_id: str,
                        repo: str) -> None:
     rows = db.query(
