@@ -185,9 +185,16 @@ Apache (khtoolhubw02)
 | **접근 로그** (4개 서비스 공통) | 누가·언제·어디에 접근 | Apache LogFormat에 `%u`(REMOTE_USER) 추가 — 앱 코드 0줄, 설정만으로 전 서비스 커버. logrotate 보존 정책 설정 |
 | **행위 로그** (서비스별) | 누가·무엇을 실행 | Studio: studios·builds/usage_log로 커버(기존 설계) · CICD: 수동 트리거 등 행위 테이블 · Release: 배포 실행 기록 · **SignTool: 서명 행위 기록 — 보안 민감도 최상, 필수** |
 
-- 행위 로그 공통 규약: `(user_id, service, action, target, result, timestamp)` 최소 필드 통일
-  → 서비스가 분산/조합되어도 이력 형식 일관 유지, 추후 통합 조회 가능
-- `service` 값은 §3.1 서비스 식별자(`studio`/`stage`/`release`/`signtool`) 사용
+- 행위 로그 공통 규약: `(user_id, service, action, target, result, detail, timestamp)`
+  최소 필드 통일 → 서비스가 분산/조합돼도 이력 형식 일관, 통합 조회 가능
+- `service` 값은 §3.1 식별자(`studio`/`stage`/`release`/`signtool`). Studio는
+  `config.SERVICE_NAME`(환경변수 `STUDIO_SERVICE_NAME`)로 지정 — 같은 audit 모듈을
+  다른 서비스가 재사용 가능.
+- **로그인 이력**: 각 서비스 SSO 접근 시 `login`(세션 스로틀, `new`/`resume`).
+  최소선은 Apache `%u` 접근 로그로도 충족. **PUSH 이력**: PUSH가 일어나는 서비스가
+  성공·실패 모두 기록(Studio는 `push_dispatch`).
+- **공통 규약·서비스별 도입 방법은 `docs/toolhub-audit-contract.md` 참조**
+  (studio/stage/release/signtool 공용 스펙 + Studio 참조 구현).
 
 ### 3.1.2 관리자 롤 (2인 체계) — 결정·구현 완료
 

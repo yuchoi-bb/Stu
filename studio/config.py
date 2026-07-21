@@ -3,6 +3,10 @@ import os
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# 서비스 식별자(§3.1) — 4개 서비스 공통 행위 로그의 service 필드.
+# 같은 audit 규약을 다른 서비스가 재사용할 때 환경변수로 덮어쓴다.
+SERVICE_NAME = os.environ.get("STUDIO_SERVICE_NAME", "studio")
+
 DB_PATH = os.environ.get("STUDIO_DB", os.path.join(BASE_DIR, "studio.db"))
 LOG_DIR = os.environ.get("STUDIO_LOG_DIR", os.path.join(BASE_DIR, "logs"))
 LOG_LEVEL = os.environ.get("STUDIO_LOG_LEVEL", "INFO")
@@ -36,6 +40,8 @@ EXECUTOR_WORKERS = 8
 MAX_CONCURRENT_PER_USER = 1                  # §4.2: 사용자당 동시 진행 1건
 # 회차 소프트 캡(§6.7): 이 횟수 이상 반복하면 "요구조건 재확정 권장" 경고(강제 아님)
 MAX_ATTEMPTS_SOFT = int(os.environ.get("STUDIO_MAX_ATTEMPTS_SOFT", "5"))
+# 로그인 감사 로그(§3.1.1): 이 간격(분) 내 재요청은 같은 세션으로 보고 재기록 안 함
+LOGIN_AUDIT_THROTTLE_MIN = int(os.environ.get("STUDIO_LOGIN_THROTTLE_MIN", "30"))
 
 # 멀티턴 히스토리 (§4.2): 최근 N턴 원문 + 이전 요약
 HISTORY_RECENT_TURNS = 6

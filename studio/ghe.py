@@ -9,7 +9,7 @@ import time
 
 import requests
 
-from . import config, crypto, db, jobs, logs
+from . import audit, config, crypto, db, jobs, logs
 from .ghe_git import (PushConflict, UnsafePath, WorkflowGuardViolation,
                       commit_and_push)
 
@@ -237,7 +237,6 @@ def run_push(build_id: int) -> None:
         jobs.set_build_status(build_id, "ci_running")
         _log.info("pushed+dispatched studio=%s attempt=%s commit=%s",
                   studio_id, b["attempt"], sha[:10])
-        from . import audit
         audit.record(b["user_id"], "push_dispatch",
                      f"{studio_id}#{b['attempt']}", "ci_running", sha[:10])
         run_id = _find_run_id(b, token)
@@ -245,27 +244,31 @@ def run_push(build_id: int) -> None:
             db.execute("UPDATE builds SET run_id=? WHERE build_id=?",
                        (run_id, build_id))
     except UnsafePath as e:
-        jobs.set_build_status(build_id, "fail", completed=True,
-                              fail_summary=f"안전하지 않은 파일 경로 차단 "
-                                           f"(절대경로/상위 탈출): {e}")
+        _push_failed(b, "fail", "unsafe_path",
+                     f"안전하지 않은 파일 경로 차단 (절대경로/상위 탈출): {e}")
     except WorkflowGuardViolation as e:
-        jobs.set_build_status(build_id, "fail", completed=True,
-                              fail_summary=f"workflow 파일 수정 금지 가드: {e}")
+        _push_failed(b, "fail", "workflow_guard",
+                     f"workflow 파일 수정 금지 가드: {e}")
     except PushConflict as e:
-        jobs.set_build_status(build_id, "push_conflict", completed=True,
-                              fail_summary=str(e))
+        _push_failed(b, "push_conflict", "push_conflict", str(e))
         _inject_message(session_id,
                         f"[push_conflict] 로컬 변경과 충돌 — {e}\n"
                         "브랜치 정리 후 재시도하거나 재생성(새 회차)을 지시하세요.")
     except GheNotConnected as e:
-        jobs.set_build_status(build_id, "fail", completed=True,
-                              fail_summary=f"GHE 재연결 필요: {e}")
+        _push_failed(b, "fail", "ghe_disconnected", f"GHE 재연결 필요: {e}")
     except jobs.Cancelled:
         raise
     except Exception as e:
         _log.exception("run_push failed build=%s studio=%s", build_id, studio_id)
-        jobs.set_build_status(build_id, "fail", completed=True,
-                              fail_summary=f"push error: {e}")
+        _push_failed(b, "fail", "error", f"push error: {e}")
+
+
+def _push_failed(b, status: str, reason: str, summary: str) -> None:
+    """push 실패를 build 상태 + 감사 로그에 기록 (성공/실패 모두 push 이력 남김)."""
+    jobs.set_build_status(b["build_id"], status, completed=True,
+                          fail_summary=summary)
+    audit.record(b["user_id"], "push_dispatch",
+                 f"{b['studio_id']}#{b['attempt']}", status, reason)
 
 
 def cancel_studio_inflight(studio_id: str, user_id: str, repo: str) -> int:

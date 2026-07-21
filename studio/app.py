@@ -6,6 +6,7 @@
 """
 import os
 import threading
+import time
 import uuid
 from urllib.parse import urlparse
 
@@ -60,15 +61,34 @@ def _init() -> None:
 _init()
 
 
+_last_login_log: dict[str, float] = {}   # user_id -> monotonic (worker 1 in-memory)
+
+
 def current_user() -> str:
     """Apache가 넣어주는 REMOTE_USER 헤더 (§3.1). 최초 로그인 시 users 자동 등록."""
     user_id = (request.environ.get("HTTP_X_REMOTE_USER") or request.remote_user
                or os.environ.get("STUDIO_DEV_USER"))   # 개발/테스트 전용 폴백
     if not user_id:
         abort(401, "REMOTE_USER missing — Apache SSO 경유 필요")
+    _register_and_log_login(user_id)
+    return user_id
+
+
+def _register_and_log_login(user_id: str) -> None:
+    """사용자 자동 등록 + 로그인 감사 로그(§3.1.1). 매 요청마다 남기면 폭주하므로
+    LOGIN_AUDIT_THROTTLE_MIN 간격 내 재요청은 같은 세션으로 보고 기록하지 않는다."""
+    now = time.monotonic()
+    last = _last_login_log.get(user_id)   # None = 이 프로세스에서 첫 접근 → 반드시 기록
+    if last is not None and now - last < config.LOGIN_AUDIT_THROTTLE_MIN * 60:
+        db.execute("INSERT OR IGNORE INTO users (user_id, ad_id) VALUES (?,?)",
+                   (user_id, user_id))
+        return
+    is_new = db.one("SELECT 1 FROM users WHERE user_id=?", (user_id,)) is None
     db.execute("INSERT OR IGNORE INTO users (user_id, ad_id) VALUES (?,?)",
                (user_id, user_id))
-    return user_id
+    _last_login_log[user_id] = now
+    from . import audit
+    audit.record(user_id, "login", None, "new" if is_new else "resume")
 
 
 # ---------- 연결 (AWS SSO device flow, §3.2) ----------
@@ -287,7 +307,8 @@ def admin_audit():
     _require_admin()
     from . import audit
     return jsonify(audit.recent(int(request.args.get("limit", 200)),
-                                request.args.get("user_id")))
+                                request.args.get("user_id"),
+                                request.args.get("action")))
 
 
 # ---------- 세션 ----------

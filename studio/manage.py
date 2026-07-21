@@ -9,7 +9,7 @@
   python -m studio.manage map-analysis <tool> <repo> <md_path>
   python -m studio.manage show-studio <studio_id>
   python -m studio.manage failures [--limit N]
-  python -m studio.manage audit [--limit N] [--user U]
+  python -m studio.manage audit [--limit N] [--user U] [--action login|push_dispatch]
   python -m studio.manage users
 """
 import argparse
@@ -115,7 +115,7 @@ def cmd_failures(a):
 
 
 def cmd_audit(a):
-    for r in audit.recent(a.limit, a.user):
+    for r in audit.recent(a.limit, a.user, a.action):
         print(f"{r['created_at']} {r['user_id'] or '-'} {r['action']} "
               f"{r['target'] or ''} -> {r['result'] or ''}")
 
@@ -151,7 +151,9 @@ def main(argv=None):
     sp.set_defaults(fn=cmd_failures)
 
     sp = sub.add_parser("audit"); sp.add_argument("--limit", type=int, default=50)
-    sp.add_argument("--user"); sp.set_defaults(fn=cmd_audit)
+    sp.add_argument("--user")
+    sp.add_argument("--action", help="예: login / push_dispatch")
+    sp.set_defaults(fn=cmd_audit)
 
     sub.add_parser("users").set_defaults(fn=cmd_users)
     sub.add_parser("admins").set_defaults(fn=cmd_admins)
