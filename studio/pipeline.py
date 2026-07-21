@@ -6,7 +6,7 @@ Step 4~5(push/CI)는 ghe 모듈이 담당.
 """
 import re
 
-from . import db, jobs, logs, prompts
+from . import config, db, jobs, logs, prompts
 from .bedrock import AwsNotConnected, invoke_claude, response_text
 
 _log = logs.get("pipeline")
@@ -220,14 +220,18 @@ def parse_paths_block(text: str) -> list[str]:
 # ---------- 컨텍스트 조립 ----------
 
 def build_history(session_id: str) -> list:
-    """멀티턴 히스토리 (§4.2: 최근 N턴 원문 + 이전 요약)."""
-    from . import config
+    """멀티턴 히스토리 (§4.2: 최근 N턴 원문 + 이전 요약).
+
+    각 메시지 원문은 HISTORY_MSG_MAXLEN으로 절단한다 — 히스토리에 과거 회차의 생성
+    코드 전문이 들어와 회차가 쌓일수록 컨텍스트가 폭주하는 것을 막는다(#2, §6.7).
+    """
     row = db.one("SELECT summary FROM sessions WHERE session_id=?", (session_id,))
     rows = db.query(
         "SELECT role, content FROM messages WHERE session_id=? "
         "ORDER BY message_id DESC LIMIT ?",
         (session_id, config.HISTORY_RECENT_TURNS * 2))
-    messages = [{"role": r["role"], "content": [{"text": r["content"]}]}
+    messages = [{"role": r["role"],
+                 "content": [{"text": _clip(r["content"], config.HISTORY_MSG_MAXLEN)}]}
                 for r in reversed(rows)]
     if row and row["summary"]:
         messages.insert(0, {"role": "user", "content": [{
@@ -237,25 +241,46 @@ def build_history(session_id: str) -> list:
     return messages
 
 
+def _clip(text: str, limit: int) -> str:
+    text = text or ""
+    return text if len(text) <= limit else text[:limit] + "\n[... 생략(상한 초과)]"
+
+
 def _inject_requirements_and_fails(messages: list, studio, studio_id: str,
                                    base_files: dict[str, str] | None = None) -> list:
+    """생성 컨텍스트 주입 — 모든 항목에 상한 적용(#2 회차 누적 폭주 방지, §6.7)."""
     blocks = []
     if studio and studio["requirements"]:
         blocks.append("확정 requirements (이 문서가 유일한 기준):\n"
                       + studio["requirements"])
     if base_files:
-        parts = ["수정 대상 파일 원문 (전체 교체 시 아래를 기준으로):"]
+        parts, total = ["수정 대상 파일 원문 (전체 교체 시 아래를 기준으로):"], 0
         for path, content in base_files.items():
-            parts.append(f"### {path}\n```\n{content}\n```")
+            room = config.GEN_BASE_FILES_MAXCHARS - total
+            if room <= 0:
+                parts.append("[... 원문 주입 상한 도달, 이후 파일 생략]")
+                break
+            body = _clip(content, room)
+            parts.append(f"### {path}\n```\n{body}\n```")
+            total += len(body)
         blocks.append("\n\n".join(parts))
-    fails = db.query(
+    # 실패 이력: 최근 K회만 주입(오래된 것은 개수만 안내) + 각 요약 길이 상한
+    total_fails = db.one(
+        "SELECT COUNT(*) AS n FROM builds WHERE studio_id=? AND status='fail' "
+        "AND fail_summary IS NOT NULL", (studio_id,))["n"]
+    recent = db.query(
         "SELECT attempt, fail_summary FROM builds "
         "WHERE studio_id=? AND status='fail' AND fail_summary IS NOT NULL "
-        "ORDER BY attempt", (studio_id,))
-    if fails:
-        blocks.append("이전 회차 실패 이력 — 같은 실수를 반복하지 말 것:\n"
-                      + "\n".join(f"attempt {f['attempt']}: {f['fail_summary']}"
-                                  for f in fails))
+        "ORDER BY attempt DESC LIMIT ?", (studio_id, config.GEN_MAX_FAILS))
+    if recent:
+        head = f"이전 회차 실패 이력 (최근 {len(recent)}회"
+        if total_fails > len(recent):
+            head += f", 그 외 {total_fails - len(recent)}회 생략"
+        head += ") — 같은 실수를 반복하지 말 것:\n"
+        lines = [f"attempt {f['attempt']}: "
+                 f"{_clip(f['fail_summary'], config.GEN_FAIL_SUMMARY_MAXLEN)}"
+                 for f in reversed(recent)]
+        blocks.append(head + "\n".join(lines))
     for text in reversed(blocks):
         messages.insert(0, {"role": "user", "content": [{"text": text}]})
     return messages

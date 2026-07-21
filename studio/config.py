@@ -40,6 +40,12 @@ MAX_ATTEMPTS_SOFT = int(os.environ.get("STUDIO_MAX_ATTEMPTS_SOFT", "5"))
 # 멀티턴 히스토리 (§4.2): 최근 N턴 원문 + 이전 요약
 HISTORY_RECENT_TURNS = 6
 
+# 생성 컨텍스트 상한(#2 회차 누적 폭주 방지, §6.7) — 파일럿 관찰 후 조정
+HISTORY_MSG_MAXLEN = 4000            # 히스토리 메시지 1건 원문 상한(문자)
+GEN_MAX_FAILS = 3                    # 주입할 최근 실패 회차 수(그 외는 개수만 안내)
+GEN_FAIL_SUMMARY_MAXLEN = 2000       # 실패 요약 1건 상한
+GEN_BASE_FILES_MAXCHARS = 60_000     # 수정 대상 원문 총 주입 상한
+
 # GHE (§3.3, §6) — 사내 값으로 설정
 GHE_BASE_URL = os.environ.get("STUDIO_GHE_BASE", "https://github.samsungds.net")
 GHE_API_URL = os.environ.get("STUDIO_GHE_API", GHE_BASE_URL + "/api/v3")
