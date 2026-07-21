@@ -1,0 +1,21 @@
+# ToolHub 4개 서비스 공통 — SSO 로그인/접근 이력 (Apache, 앱 코드 0줄)
+#
+# Knox SSO가 REMOTE_USER를 채우므로 %u가 곧 "누가 로그인해 접근했는가"의 이력이 된다.
+# 각 서비스 VirtualHost에 아래 LogFormat + CustomLog를 넣고 service 이름만 바꾼다.
+# (docs/toolhub-audit-contract.md §1 접근/로그인 이력)
+
+# 공통 포맷: 시각 · 사용자(%u) · 요청 · 상태 · service 태그
+LogFormat "%t %h user=%u \"%r\" %>s %b service=studio"   toolhub_studio
+LogFormat "%t %h user=%u \"%r\" %>s %b service=stage"    toolhub_stage
+LogFormat "%t %h user=%u \"%r\" %>s %b service=release"  toolhub_release
+LogFormat "%t %h user=%u \"%r\" %>s %b service=signtool" toolhub_signtool
+
+# 각 서비스 VirtualHost 안에서 해당 CustomLog 사용. 예)
+#   <VirtualHost *:443>  # studio
+#     CustomLog /var/log/apache2/toolhub-access.log toolhub_studio
+#   </VirtualHost>
+#
+# 보존: logrotate로 회전·보존기간 지정(예: 90일). 통합 조회가 필요하면 4개 로그를
+# 같은 형식이라 그대로 수집(TIG/ELK)해 service 필드로 필터한다.
+#
+# 주의: %u는 인증(REMOTE_USER)이 채워진 뒤에만 값이 있다. 인증 전 요청은 "-"로 남는다.
