@@ -54,10 +54,12 @@ try:
         assert "spec.txt" in page.locator(".attachchip").first.inner_text()
         print("OK: 첨부 업로드 → 첨부 칩 표시")
 
-        # B②: 대상 tool 미지정 → 분석 md 경고 배너
+        # B②: 대상 tool 미지정 → 분석 md 경고 배너 + 초기 설정 준비 배너(UX)
         page.wait_for_selector(".pwarn", timeout=8000)
-        assert "미지정" in page.locator(".pwarn").first.inner_text()
-        print("OK: 분석 md 미지정 경고 배너")
+        panel_txt = page.locator(".panel").inner_text()
+        assert "미지정" in panel_txt, panel_txt
+        assert "시작 전 필요" in panel_txt and "AWS 연결" in panel_txt
+        print("OK: 분석 md 미지정 경고 + 초기 설정 준비 배너")
 
         page.fill("#input", "parser 출력을 내림 처리로 바꿔줘")
         page.click("text=전송")

@@ -237,7 +237,12 @@ let lastSig = null;   // 데이터 변경 시에만 재렌더 (클릭 경합/편
 async function api(path, opts) {
   const r = await fetch("/api/studio" + path, Object.assign({
     headers: {"Content-Type": "application/json"}}, opts));
-  if (!r.ok) { const t = await r.text(); throw new Error(t.slice(0, 300)); }
+  if (!r.ok) {
+    const raw = await r.text();
+    let msg = raw.slice(0, 300);
+    try { msg = JSON.parse(raw).error || msg; } catch (_) { /* HTML 폴백 */ }
+    throw new Error(msg || `오류 (${r.status})`);
+  }
   return r.headers.get("content-type")?.includes("json") ? r.json() : r.text();
 }
 const post = (p, body) => api(p, {method: "POST", body: JSON.stringify(body || {})});
@@ -334,7 +339,12 @@ function renderChat() {
 function draftCard(d) {
   if (d.status === "generating")
     return `<div class="card"><div class="head"><span class="step">STEP 2</span>
-            requirements 초안 생성 중...</div></div>`;
+            <span class="spin"></span>requirements 초안 생성 중...</div></div>`;
+  if (d.status === "failed")
+    return `<div class="card"><div class="head"><span class="step">STEP 2</span>
+      <span style="color:#e59a9a">초안 생성 실패</span></div>
+      <div class="warnbar" style="background:#5a1f1f">${esc(d.content || "생성 실패")}</div>
+      <div class="foot"><span class="hint">다시 요구조건을 입력해 재시도하세요.</span></div></div>`;
   return `<div class="card"><div class="head"><span class="step">STEP 2</span>
     requirements 확정 게이트 — 검토 후 승인</div>
     <div class="cbody"><textarea class="req" id="reqEdit">${esc(d.content || "")}</textarea></div>
@@ -418,9 +428,19 @@ function lineDiff(oldText, newText) {
   while (j < m) out.push({t: "+", l: b[j++]});
   return out;
 }
+function readinessBanner() {
+  const c = state.conn || {};
+  const miss = [];
+  if (!c.aws_connected) miss.push("AWS 연결");
+  if (!c.ghe_connected) miss.push("GHE 연결");
+  if (!c.branch || !c.branch.branch_name) miss.push("작업 브랜치 설정");
+  return miss.length
+    ? `<div class="pwarn hi">⚙ 시작 전 필요: ${miss.join(" · ")} — 우측 상단 배지·⚙설정에서</div>`
+    : "";
+}
 function warnBanner() {
   const d = state.detail || {};
-  let h = "";
+  let h = readinessBanner();
   if (d.analysis_warn) h += `<div class="pwarn">🧭 ${esc(d.analysis_warn)}</div>`;
   if (d.attempt_warn)
     h += `<div class="pwarn hi">🔁 회차가 많이 반복됐습니다 — 코드가 아니라 요구조건 문제일 수 있어요. Step 2 재확정을 검토하세요.</div>`;

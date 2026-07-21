@@ -10,12 +10,19 @@ import uuid
 from urllib.parse import urlparse
 
 from flask import Flask, abort, jsonify, request
+from werkzeug.exceptions import HTTPException
 
 from . import config, crypto, db, jobs, logs, prompts
 from .aws_sso import poll_device_flow, start_device_flow, start_refresh_scheduler
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = config.ATTACH_MAX_BYTES
+
+
+@app.errorhandler(HTTPException)
+def _json_error(e):
+    """API 오류를 HTML 페이지가 아닌 JSON으로 반환 — UI가 깔끔한 메시지를 띄운다."""
+    return jsonify({"error": e.description, "code": e.code}), e.code or 500
 
 _MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
 
@@ -319,7 +326,7 @@ def session_detail(session_id):
         "ORDER BY created_at DESC LIMIT 1", (session_id,))
     draft = db.one(
         "SELECT * FROM requirement_drafts WHERE session_id=? "
-        "AND status IN ('generating','ready') "
+        "AND status IN ('generating','ready','failed') "
         "ORDER BY draft_id DESC LIMIT 1", (session_id,))
     builds = []
     can_pr = False

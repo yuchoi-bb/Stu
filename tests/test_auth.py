@@ -60,4 +60,13 @@ r = client.get("/api/studio/connections",
 assert r.status_code == 200, r.status_code
 print("OK: CSRF — cross-origin 상태변경 403, same/no-origin·GET 통과")
 
+# ---------- 에러는 HTML이 아닌 JSON으로 반환 (UX) ----------
+r = client.get("/api/studio/connections")   # 헤더 없음 → 401
+assert r.status_code == 401
+assert r.is_json, "에러가 JSON이 아님(HTML)"
+assert r.get_json().get("error"), r.get_json()
+r = client.post("/api/studio/studios/nope/create-pr", headers=H, json={})
+assert r.status_code == 404 and r.is_json and r.get_json().get("error")
+print("OK: HTTP 에러가 JSON {error,code}로 반환 (alert에 raw HTML 방지)")
+
 print("\nALL AUTH TESTS PASSED")
