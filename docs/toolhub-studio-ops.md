@@ -43,6 +43,12 @@ sudo systemctl status toolhub-studio
 - 확인: `manage.py show-studio <studio_id>` 로 회차/상태/run 확인.
 - 조치: 사용자가 해당 build 취소(취소 전파로 stage run도 cancel) 후 재생성 지시.
 
+### 2.2.1 build가 `pushed`에서 오래 대기
+- 장애 아님 — §6.8 stage 전달 게이트. 코드는 브랜치에 커밋됐고 **사용자의 전달
+  결정(“stage 검증 시작”)을 기다리는 상태**다("코드만 준비" studio는 이게 기본).
+- 사용자당 동시 1건에 포함되므로 새 작업이 막히면: 해당 회차를 전달하거나 취소하도록
+  안내. 방치 회차는 studio 종결 시 자동 취소된다.
+
 ### 2.3 push_conflict 빈발
 - 자유 브랜치에 사용자의 로컬 수정이 겹칠 때 발생(§6.5 blob SHA 가드). 정상 방어 동작.
 - 안내: 브랜치 정리 후 재시도 또는 재생성(새 회차). 조용한 덮어쓰기는 하지 않는다.

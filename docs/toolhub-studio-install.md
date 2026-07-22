@@ -165,7 +165,7 @@ sudo -u toolhub .../python -m studio.manage audit --action login --limit 5
 | 2 | AWS 연결(device flow 승인, **A-8**) | "AWS 연결됨" 배지 | `studio-log`·`doctor` SSO 3값 |
 | 3 | GHE 연결(OAuth 또는 PAT) | `manage.py users`에 `ghe=<login>` | `doctor` GHE·`audit` |
 | 4 | 작업 브랜치 설정 | 브랜치 저장됨 | `manage.py set-branch` 로 대체 확인 |
-| 5 | 요구조건 1건 입력→**Step 2 승인** | studio 발급(`show-studio`) | studio-log `[step2]` |
+| 5 | 요구조건 1건 입력→**Step 2 승인** (검증 방식 `ci` 선택, §6.8) | studio 발급(`show-studio`) | studio-log `[step2]` |
 | 6 | 생성 | 파일 생성됨(`[step3] 생성 파일`) | studio-log `[gen]`·OBS |
 | 7 | 리뷰(Step 3.5)→커밋/push | 자유 브랜치에 커밋 | studio-log `push`·`audit push_dispatch` |
 | 8 | **CI 트리거→pass** | build `status=pass`(`show-studio`) | stage run 로그·`failures` |
@@ -178,6 +178,8 @@ tail -f /opt/toolhub/data/logs/studio/S-*.log      # 해당 studio 디버그 로
 ```
 
 - **판정**: 1왕복이 8번(CI pass)까지 도달하면 오픈 가능. 9번은 선택.
+- (선택) **stage 전달 게이트(§6.8)도 확인**: 두 번째 요구조건을 "코드만 준비"로
+  승인 → push 후 `pushed` 대기 → "stage 검증 시작" 버튼으로 전달되는지 1회.
 - 첫 왕복은 `STUDIO_LOG_LEVEL=DEBUG`로 두고 전 구간 로그를 남겨 기준선(baseline)을
   확보한다. 이후 실사용 문제를 이 기준선과 비교해 빠르게 좁힌다.
 - CI가 fail이면 코드/분석 md/프롬프트 중 어디 문제인지 `fail_summary`(+OBS 로그)로

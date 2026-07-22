@@ -56,7 +56,8 @@ Studio가 이 규약의 **참조 구현(reference implementation)**이다.
 - `studio/audit.py`: `record(user_id, action, target, result, detail)` — `service`는
   `config.SERVICE_NAME`(기본 `studio`, 환경변수 `STUDIO_SERVICE_NAME`로 덮어쓰기).
 - 기록 지점: `login`(접근, 스로틀), `push_dispatch`(성공/실패), `requirements_approve`,
-  `review_approve`/`review_reject`, `create_pr`, `cancel`, `grant_admin`/`revoke_admin`,
+  `review_approve`/`review_reject`, `stage_dispatch`(§6.8 보류 회차의 stage 전달 결정),
+  `create_pr`, `cancel`, `grant_admin`/`revoke_admin`,
   `ci_result` 등 — **HTML의 상태 변경 동작이 API를 거치며 모두 기록**된다.
 - 조회: `GET /api/studio/admin/audit?action=login|push_dispatch&user_id=…` (관리자),
   CLI `python -m studio.manage audit --action push_dispatch --user hong`.

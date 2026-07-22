@@ -300,7 +300,7 @@ def invoke_claude(user_id, session_id, messages, system):
 
 - `POST /api/studio/message` → ThreadPoolExecutor(8)에 작업 제출, `studio_id` 즉시 반환
   (신규 요구조건이면 studio_id 신규 발급, 반복이면 기존 studio_id 아래 새 build 회차 추가)
-- 상태 전이는 **build 회차 단위**: `generating` → `awaiting_review`(Step 3.5, 자동 승인 모드면 생략) → `pushing` → `ci_running` → `pass/fail/cancelled` (DB 기록)
+- 상태 전이는 **build 회차 단위**: `generating` → `awaiting_review`(Step 3.5, 자동 승인 모드면 생략) → `pushing` → (`pushed` stage 보류, §6.8) → `ci_running` → `pass/fail/cancelled` (DB 기록)
   studio 단위 상태는 별도: `open`(반복 중) → `done`(사용자 종료/채택) /
   `abandoned`(포기 또는 requirements 재확정으로 새 studio_id에 대체됨, §7.1 Step 5 출구)
 - 프론트는 `GET /api/studio/status/{studio_id}` 폴링 — 최신 회차 상태 + 회차 이력 반환
@@ -345,13 +345,16 @@ attachments(attachment_id PK, session_id→sessions, filename, mime_type,
 
 studios(studio_id PK, session_id→sessions, user_id, repo, branch_name,
         status,        -- open(반복 중)/done(종료·채택)/abandoned
+        verify_mode,   -- Step 2에서 결정: ci(stage 검증까지, 기본)/code_only(코드만 준비, §6.8)
         created_at, completed_at)
         -- 확정 requirements 1건에 대한 생성~검증 반복의 단위. 1 studio_id : N builds
 
 builds(build_id PK, studio_id→studios, attempt,   -- studio 내 회차 번호 (1,2,…)
        commit_sha, run_id, buildid,               -- buildid는 stage가 발급
-       status,        -- generating/awaiting_review/pushing/push_conflict/ci_running/pass/fail/cancelled
+       status,        -- generating/awaiting_review/pushing/pushed/push_conflict/ci_running/pass/fail/cancelled
+                      -- pushed = push 완료·stage 전달 보류 (§6.8)
        cancel_requested,  -- 취소 플래그 (DB 경유 — 재시작/확장 안전, §4.3)
+       hold_dispatch,     -- 승인 시 stage 전달 보류 (§6.8, studio verify_mode에서 상속)
        fail_summary,  -- CI 실패 요약 — 다음 회차 생성 컨텍스트로 주입 (§7.1 Step 5)
        created_at, completed_at)
 
@@ -626,6 +629,9 @@ Step 3.5. 코드 리뷰 게이트 (stage 전달 전) ★
   · **위험 패턴 정적 검사(§12.4)**: 생성 파일을 push 전 스캔해 리뷰 카드에 표시.
     high(명령실행/시크릿/파괴적 조작/네트워크 유출)가 있으면 auto_approve여도
     자동 승인을 보류하고 사람 검토를 강제 (마지막 안전망)
+  · **stage 전달 여부(§6.8)**: studio verify_mode(Step 2 결정)에 따라 승인이
+    push+검증(ci) 또는 push만(code_only, `pushed` 보류)으로 진행. 회차 단위
+    override 가능 — 보류 회차는 별도 결정으로 stage 전달
 
 Step 4. 본인 브랜치 커밋/push → dispatch → CI race  (§6.2)
 
@@ -859,6 +865,11 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
 - [ ] SSE 스트리밍 (gunicorn worker class 변경 + Apache 버퍼링 해제)
 - [ ] HWP 파싱 지원 (12.1 확인 결과에 따라)
 - [x] Studio PR 생성 버튼 (안 B 채택) — 본인 토큰으로 PR 생성, 멱등/가드/자동merge금지, 테스트 통과
+- [x] stage 전달 게이트 + 검증 방식 사전 결정 (§6.8, v0.12~13) — Step 2에서
+      `verify_mode`(ci/code_only) 결정, code_only는 전 회차 stage 보류 상속.
+      회차 단위 `dispatch` override, `pushed` 보류 상태 + 명시 전달 엔드포인트
+      (원자적 전이·이중 전달 차단), 보류 중 취소. UI(라디오/모드 칩/전달 카드) +
+      audit(`stage_dispatch`) + test_stage_gate 9종 통과
 - [ ] 사용자 증가 시 PostgreSQL 이관 (스키마 호환 유지)
 - [ ] 첨부문서 저장소 OBS(MinIO) 이관
 - [ ] 일일 토큰 쿼터 정책 (미터링 데이터 기반)

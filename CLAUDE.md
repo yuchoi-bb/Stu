@@ -20,7 +20,7 @@ CI/CD(studio-verify.yml, workflow_dispatch)로 검증하는 내부 도구. 실�
 ## 개발 명령
 ```bash
 bash scripts/preflight.sh   # 배포 준비 게이트: 의존성·부팅·테스트·E2E데모·린트 한 번에
-python tests/run_all.py     # 전체 테스트(22 스위트) — 반드시 green 유지
+python tests/run_all.py     # 전체 테스트(23 스위트) — 반드시 green 유지
 ruff check .                # 린트(ruff.toml, line-length 100, E/W/F)
 python scripts/demo.py      # 엔드투엔드 데모(전체 파이프라인 완주, 산 문서 겸 스모크)
 python -m studio.manage doctor [--net]   # 대상 서버 환경 진단(경로/키/설정/도달성)
