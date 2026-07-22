@@ -41,6 +41,8 @@ _MIGRATIONS = [
      "ALTER TABLE build_files ADD COLUMN base_content TEXT"),
     ("builds", "hold_dispatch",
      "ALTER TABLE builds ADD COLUMN hold_dispatch INTEGER NOT NULL DEFAULT 0"),
+    ("studios", "verify_mode",
+     "ALTER TABLE studios ADD COLUMN verify_mode TEXT NOT NULL DEFAULT 'ci'"),
 ]
 
 

@@ -350,6 +350,11 @@ function draftCard(d) {
   return `<div class="card"><div class="head"><span class="step">STEP 2</span>
     requirements 확정 게이트 — 검토 후 승인</div>
     <div class="cbody"><textarea class="req" id="reqEdit">${esc(d.content || "")}</textarea></div>
+    <div class="m" style="padding:6px 0 0">검증 방식 (§6.8 — 지금 정하고, 회차마다 바꿀 수도 있음):
+      <label style="margin-left:8px"><input type="radio" name="vmode" value="ci" checked>
+        stage CI/CD 검증까지</label>
+      <label style="margin-left:12px"><input type="radio" name="vmode" value="code_only">
+        코드만 준비 (push 후 stage 보류)</label></div>
     <div class="foot">
       <button class="btn primary" onclick="approveDraft(${d.draft_id})">승인하고 진행</button>
     </div></div>`;
@@ -380,12 +385,19 @@ function reviewCard() {
     ${warn ? `<div class="warnbar">⚠ 회귀 경고: 라인 수가 직전 회차 대비 급감한 파일이 있습니다 — 내용 누락 확인</div>` : ""}
     ${scanList}
     ${fileView(cur)}
-    <div class="foot">
+    ${(state.detail?.studio?.verify_mode === "code_only")
+      ? `<div class="foot">
+      <button class="btn danger" onclick="reviewBuild('reject')">거부 (사유)</button>
+      <button class="btn" onclick="reviewBuild('approve', true)"
+        title="이 회차만 studio 기본(코드만 준비)을 무시하고 바로 검증">승인 → push + 검증 (이번만)</button>
+      <button class="btn primary" onclick="reviewBuild('approve')">승인 → push만 (stage 보류)</button>
+    </div>`
+      : `<div class="foot">
       <button class="btn danger" onclick="reviewBuild('reject')">거부 (사유)</button>
       <button class="btn" onclick="reviewBuild('approve', false)"
         title="브랜치에 push만 하고 stage 검증은 별도 결정으로 보류">승인 → push만 (stage 보류)</button>
       <button class="btn primary" onclick="reviewBuild('approve')">승인 → push + 검증</button>
-    </div></div>`;
+    </div>`}</div>`;
 }
 // §6.8 stage 전달 게이트: push만 된 회차 — stage로 보낼지 사용자가 결정
 function stageGateCard(b) {
@@ -476,7 +488,10 @@ function renderPanel() {
   const last = latestBuild();
   $("panel").innerHTML = `
     <div><div class="p-title">STUDIO</div><div class="p-id">${esc(st.studio_id)}</div>
-      <div class="hint">${esc(st.repo || "")} / ${esc(st.branch_name || "브랜치 미설정")}</div></div>
+      <div class="hint">${esc(st.repo || "")} / ${esc(st.branch_name || "브랜치 미설정")}
+        · ${st.verify_mode === "code_only"
+            ? '<span class="chip pushed">코드만 준비</span>'
+            : '<span class="chip pass">CI 검증</span>'}</div></div>
     ${warnBanner()}
     ${last && ["generating", "pushing", "ci_running"].includes(last.status)
       ? `<div class="runbar"><span class="spin"></span>${runLabel(last.status)} (회차 #${last.attempt})</div>` : ""}
@@ -542,7 +557,9 @@ async function send() {
 }
 async function approveDraft(draftId) {
   const content = $("reqEdit") ? $("reqEdit").value : null;
-  try { await post(`/requirements/${draftId}/approve`, {content}); }
+  const vm = document.querySelector('input[name="vmode"]:checked');
+  try { await post(`/requirements/${draftId}/approve`,
+                   {content, verify_mode: vm ? vm.value : "ci"}); }
   catch (e) { alert(e.message); }
   await refresh();
 }
@@ -550,7 +567,7 @@ async function reviewBuild(action, dispatch) {
   let reason = null;
   if (action === "reject") { reason = prompt("거부 사유 (다음 회차에 전달됩니다)"); if (reason === null) return; }
   const body = {action, reason};
-  if (dispatch === false) body.dispatch = false;   // §6.8 stage 보류
+  if (dispatch !== undefined) body.dispatch = dispatch;   // §6.8 명시 시 studio 기본 무시
   try { await post(`/builds/${state.reviewBuild}/review`, body); }
   catch (e) { alert(e.message); }
   state.reviewBuild = null; await refresh();

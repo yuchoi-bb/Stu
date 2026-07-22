@@ -96,6 +96,9 @@ CREATE TABLE IF NOT EXISTS studios (
     requirements TEXT,   -- Step 2 승인본 (생성 근거, 브랜치에도 md로 동반 커밋)
     status       TEXT NOT NULL DEFAULT 'open',
                  -- open(반복 중) / done(종료·채택) / abandoned(포기 또는 재확정 대체)
+    verify_mode  TEXT NOT NULL DEFAULT 'ci',
+                 -- §6.8: Step 2에서 결정하는 검증 방식.
+                 -- ci = stage CI/CD 검증까지(기본) / code_only = 코드만 준비(push 보류)
     pr_number    INTEGER,   -- §6.6 안 B: 본인 명의로 생성한 PR (자동 merge 금지)
     pr_url       TEXT,
     created_at   TEXT NOT NULL DEFAULT (datetime('now')),

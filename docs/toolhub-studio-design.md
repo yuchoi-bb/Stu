@@ -36,6 +36,7 @@
 | 루프 출구 (v0.10) | Step 3↔5 루프만 존재 | **Step 5 → Step 2 복귀 경로** — requirements 재확정 = 새 studio_id 발급, 기존 studio는 abandoned (이력은 새 studio 컨텍스트로 참조) | 요구조건 자체의 결함은 코드 루프로 해결 불가 — studio_id="확정 requirements 1건" 정의의 자연스러운 귀결 |
 | 이식 순서 (v0.11) | SSO 포함 일괄 배포 | **SSO(Knox 로그인+AWS SSO) 최후순위** — 인프라·DB·GHE·CI 먼저 검증 후 마지막에 SSO 연동(install 런북 A-8) | SSO 연동 리드타임이 길고 무인 자동화가 어려움 → 나머지를 SSO에 볼모 잡히지 않게 분리. `doctor`가 SSO 미설정을 WARN(게이트 비차단)으로 처리 |
 | stage 전달 게이트 (v0.12) | Step 3.5 승인 = push+dispatch 한 동작 | **승인과 stage 전달 결정 분리(§6.8)** — 승인 시 `dispatch=false`면 push까지만(`pushed` 보류), 별도 사용자 결정으로 stage 전달. 기본은 기존대로 한 번에 | 코드 승인 ≠ runner 실행 승인. 검증 타이밍·runner 부하를 사람이 통제하는 §6.4 실행 경계의 연장. 기본 동작 유지로 기존 흐름 무회귀 |
+| 검증 방식 사전 결정 (v0.13) | 회차마다 전달 여부 결정 | **Step 2에서 studio 단위 `verify_mode` 결정(§6.8)** — `ci`(stage 검증까지, 기본) / `code_only`(코드만 준비, 전 회차 stage 보류 상속·회차 override 가능) | 요구조건을 받는 시점에 "CI/CD까지 vs 코드만"이 이미 정해지는 경우가 많음 — 매 회차 재결정 부담 제거, 요청자 의도를 studio에 고정 |
 
 **신원 원칙 (통일)**: AWS도 GHE도 **사용자 본인 계정**. Bedrock은 device flow,
 GHE는 개인 PAT. 서버는 각 사용자의 자격증명을 암호화 대리 보관할 뿐, 모든 행위는 본인 명의.
@@ -544,8 +545,18 @@ studio를 채택(`done`)·포기(`abandoned`)하거나 **재확정으로 새 stu
 
 ### 6.8 stage 전달 게이트 (승인과 전달 결정의 분리)
 
-Step 3.5 승인은 기본적으로 push+stage 검증을 한 번에 진행하지만, **코드 승인과
-"stage에 전달할지" 결정은 분리할 수 있다**. 승인 시 `dispatch=false`를 택하면:
+**검증 방식은 Step 2(요구조건 확정) 시점에 studio 단위로 먼저 정한다**
+(`verify_mode`, approve 시 선택):
+
+- **`ci`(기본)** — 지금까지의 흐름. 승인하면 push+stage 검증까지 한 번에.
+- **`code_only`(코드만 준비)** — 모든 회차가 **stage 보류 기본값**으로 생성된다.
+  승인해도 push까지만 하고 stage로는 보내지 않는다(아래 `pushed` 대기). 고객/요청자가
+  "코드만 필요하다"거나, CI를 돌릴 시점을 나중에 정하고 싶은 작업에 쓴다.
+  새 회차도 이 방식을 상속하며, 리뷰 시 "이번만 검증"(`dispatch=true`)으로 회차 단위
+  override가 가능하다.
+
+studio 방침과 별개로, **회차 단위로도** 승인 시 `dispatch=false`를 택해 push까지만
+진행할 수 있다:
 
 - push까지만 수행하고 회차는 **`pushed`**(stage 전달 보류) 상태로 대기.
   코드는 작업 브랜치에 커밋되지만 stage runner에서는 아무것도 실행되지 않는다.

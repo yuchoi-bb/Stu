@@ -134,4 +134,65 @@ assert row["status"] == "ci_running" and row["run_id"] == 888, dict(row)
 assert row["hold_dispatch"] == 0 and dispatched == [b3]
 print("OK: 기본 승인은 기존대로 push+검증 한 번에 (회귀 없음)")
 
+# ---------- Step 2에서 검증 방식 결정: code_only (코드만 준비) ----------
+db.execute("UPDATE builds SET status='pass', completed_at=datetime('now') "
+           "WHERE build_id=?", (b3,))   # 이전 회차 종결
+with mock.patch.object(pipeline, "invoke_claude", llm):
+    sid2 = client.post("/api/studio/sessions", headers=H,
+                       json={"title": "t2"}).get_json()["session_id"]
+    d2 = client.post("/api/studio/requirements/draft", headers=H,
+                     json={"session_id": sid2, "content": "R2"}).get_json()
+    # 잘못된 verify_mode → 400
+    r = client.post(f"/api/studio/requirements/{d2['draft_id']}/approve",
+                    headers=H, json={"verify_mode": "yolo"})
+    assert r.status_code == 400, r.data
+    r = client.post(f"/api/studio/requirements/{d2['draft_id']}/approve",
+                    headers=H, json={"verify_mode": "code_only"}).get_json()
+studio2 = r["studio_id"]
+assert db.one("SELECT verify_mode FROM studios WHERE studio_id=?",
+              (studio2,))["verify_mode"] == "code_only"
+c1 = db.one("SELECT build_id, status, hold_dispatch FROM builds "
+            "WHERE studio_id=?", (studio2,))
+assert c1["status"] == "awaiting_review" and c1["hold_dispatch"] == 1, dict(c1)
+print("OK: Step 2에서 code_only 결정 → 회차가 stage 보류 기본값으로 생성 (잘못된 값 400)")
+
+# ---------- code_only: 평범한 승인(dispatch 미지정) → pushed ----------
+dispatched.clear()
+m1, m2, m3, m4 = ghe_mocks()
+with m1, m2, m3, m4:
+    r = client.post(f"/api/studio/builds/{c1['build_id']}/review", headers=H,
+                    json={"action": "approve"})
+assert r.get_json()["hold_dispatch"] is True, r.data
+assert db.one("SELECT status FROM builds WHERE build_id=?",
+              (c1["build_id"],))["status"] == "pushed"
+assert dispatched == [], "code_only인데 stage로 전달됨"
+# 이후 마음이 바뀌면 §6.8 결정으로 전달 가능
+m1, m2, m3, m4 = ghe_mocks(run_id=999)
+with m1, m2, m3, m4:
+    client.post(f"/api/studio/builds/{c1['build_id']}/dispatch", headers=H)
+assert db.one("SELECT status, run_id FROM builds WHERE build_id=?",
+              (c1["build_id"],))["status"] == "ci_running"
+print("OK: code_only studio — 승인은 push까지만, 이후 명시 결정으로만 stage 전달")
+
+# ---------- code_only: 새 회차도 보류 상속 + 이번만 검증 override ----------
+db.execute("UPDATE builds SET status='pass', completed_at=datetime('now') "
+           "WHERE build_id=?", (c1["build_id"],))
+with mock.patch.object(pipeline, "invoke_claude", llm):
+    r = client.post("/api/studio/message", headers=H,
+                    json={"session_id": sid2, "studio_id": studio2,
+                          "content": "수정"})
+c2 = r.get_json()["build_id"]
+assert db.one("SELECT hold_dispatch FROM builds WHERE build_id=?",
+              (c2,))["hold_dispatch"] == 1   # 상속
+dispatched.clear()
+m1, m2, m3, m4 = ghe_mocks(run_id=1000)
+with m1, m2, m3, m4:
+    r = client.post(f"/api/studio/builds/{c2}/review", headers=H,
+                    json={"action": "approve", "dispatch": True})   # 이번만 검증
+assert r.get_json()["hold_dispatch"] is False
+assert db.one("SELECT status FROM builds WHERE build_id=?",
+              (c2,))["status"] == "ci_running"
+assert dispatched == [c2]
+print("OK: code_only 새 회차 보류 상속 + dispatch=true로 이번만 즉시 검증")
+
 print("\nALL STAGE-GATE TESTS PASSED")

@@ -459,6 +459,11 @@ def approve_requirements(draft_id):
 
     session_id = draft["session_id"]
     requirements = body.get("content") or draft["content"]   # 사용자 수정본 우선
+    # §6.8: 검증 방식은 요구조건 확정 시점에 정한다 —
+    # ci = stage CI/CD 검증까지(기본) / code_only = 코드만 준비(push 후 stage 보류)
+    verify_mode = body.get("verify_mode") or "ci"
+    if verify_mode not in ("ci", "code_only"):
+        abort(400, "verify_mode는 ci 또는 code_only")
 
     with _submit_lock:
         if jobs.active_count_for_user(user_id) >= config.MAX_CONCURRENT_PER_USER:
@@ -485,17 +490,18 @@ def approve_requirements(draft_id):
         studio_id = f"ST-{uuid.uuid4().hex[:8]}"
         db.execute(
             "INSERT INTO studios (studio_id, session_id, user_id, repo, branch_name, "
-            "requirements) VALUES (?,?,?,?,?,?)",
+            "requirements, verify_mode) VALUES (?,?,?,?,?,?,?)",
             (studio_id, session_id, user_id,
              branch["repo"] if branch else config.DEFAULT_REPO,
-             branch["branch_name"] if branch else None, requirements))
-        build_id = db.execute("INSERT INTO builds (studio_id, attempt) VALUES (?,1)",
-                              (studio_id,))
+             branch["branch_name"] if branch else None, requirements, verify_mode))
+        build_id = db.execute(
+            "INSERT INTO builds (studio_id, attempt, hold_dispatch) VALUES (?,1,?)",
+            (studio_id, 1 if verify_mode == "code_only" else 0))
 
     from . import audit
-    audit.record(user_id, "requirements_approve", studio_id, "ok")
-    logs.slog(studio_id, "[step2] 요구조건 승인 → studio 발급 session=%s build=%s",
-              session_id, build_id)
+    audit.record(user_id, "requirements_approve", studio_id, "ok", verify_mode)
+    logs.slog(studio_id, "[step2] 요구조건 승인 → studio 발급 session=%s build=%s "
+              "verify_mode=%s", session_id, build_id, verify_mode)
     from .pipeline import run_generation
     jobs.submit(run_generation, user_id, session_id, studio_id, build_id)
     return jsonify({"studio_id": studio_id, "build_id": build_id, "attempt": 1}), 201
@@ -538,8 +544,12 @@ def post_message():
         row = db.one("SELECT MAX(attempt) AS a FROM builds WHERE studio_id=?",
                      (studio_id,))
         attempt = (row["a"] or 0) + 1
-        build_id = db.execute("INSERT INTO builds (studio_id, attempt) VALUES (?,?)",
-                              (studio_id, attempt))
+        # 새 회차도 studio의 검증 방식(§6.8)을 상속 — code_only면 stage 보류로 시작
+        build_id = db.execute(
+            "INSERT INTO builds (studio_id, attempt, hold_dispatch) "
+            "VALUES (?,?,(SELECT CASE WHEN verify_mode='code_only' THEN 1 ELSE 0 END "
+            "FROM studios WHERE studio_id=?))",
+            (studio_id, attempt, studio_id))
 
     logs.slog(studio_id, "[msg] 사용자 메시지 → 회차 #%s 생성 build=%s", attempt, build_id)
     from . import metrics
@@ -598,11 +608,13 @@ def review_build(build_id):
     action = body.get("action")
     from . import audit
     if action == "approve":
-        # §6.8 stage 전달 게이트: dispatch=false면 push까지만 하고 stage 전달은
-        # 별도 결정(POST /builds/<id>/dispatch)으로 보류한다. 기본은 즉시 전달.
-        hold = body.get("dispatch") is False
-        db.execute("UPDATE builds SET hold_dispatch=? WHERE build_id=?",
-                   (1 if hold else 0, build_id))
+        # §6.8 stage 전달 게이트: dispatch를 명시하면 그 값으로 덮어쓰고(즉시/보류),
+        # 없으면 studio의 verify_mode에서 온 회차 기본값(hold_dispatch)을 따른다.
+        if "dispatch" in body:
+            db.execute("UPDATE builds SET hold_dispatch=? WHERE build_id=?",
+                       (0 if body["dispatch"] else 1, build_id))
+        hold = bool(db.one("SELECT hold_dispatch FROM builds WHERE build_id=?",
+                           (build_id,))["hold_dispatch"])
         jobs.set_build_status(build_id, "pushing")
         audit.record(current_user(), "review_approve", f"build={build_id}", "ok",
                      "stage 보류" if hold else None)
