@@ -14,7 +14,8 @@ CI/CD(studio-verify.yml, workflow_dispatch)로 검증하는 내부 도구. 실�
   폴러가 단일 프로세스 전제. `bind=127.0.0.1:5000`(외부는 Apache 경유만).
 - SQLite + WAL (`studio.db`). 작업 큐 = ThreadPoolExecutor(8). 진행 상황은 REST 폴링.
 - 1 studio_id : N build 회차. push는 blob SHA 가드(§6.5)로 조용한 덮어쓰기 차단.
-- 게이트: Step 2(요구조건 확정) · Step 3.5(코드 리뷰) · §6.6 안 B(사용자 PR 버튼).
+- 게이트: Step 2(요구조건 확정) · Step 3.5(코드 리뷰) · §6.8 stage 전달(보류 옵션) ·
+  §6.6 안 B(사용자 PR 버튼).
 
 ## 개발 명령
 ```bash

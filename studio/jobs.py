@@ -54,7 +54,7 @@ def active_count_for_user(user_id: str) -> int:
         """SELECT COUNT(*) AS n FROM builds b
            JOIN studios s ON s.studio_id = b.studio_id
            WHERE s.user_id=? AND b.status IN
-                 ('generating','awaiting_review','pushing','ci_running')""",
+                 ('generating','awaiting_review','pushing','pushed','ci_running')""",
         (user_id,))
     return row["n"] if row else 0
 

@@ -598,12 +598,19 @@ def review_build(build_id):
     action = body.get("action")
     from . import audit
     if action == "approve":
+        # §6.8 stage 전달 게이트: dispatch=false면 push까지만 하고 stage 전달은
+        # 별도 결정(POST /builds/<id>/dispatch)으로 보류한다. 기본은 즉시 전달.
+        hold = body.get("dispatch") is False
+        db.execute("UPDATE builds SET hold_dispatch=? WHERE build_id=?",
+                   (1 if hold else 0, build_id))
         jobs.set_build_status(build_id, "pushing")
-        audit.record(current_user(), "review_approve", f"build={build_id}", "ok")
-        logs.slog(row["studio_id"], "[review] 승인 → pushing build=%s", build_id)
+        audit.record(current_user(), "review_approve", f"build={build_id}", "ok",
+                     "stage 보류" if hold else None)
+        logs.slog(row["studio_id"], "[review] 승인 → pushing build=%s%s",
+                  build_id, " (stage 보류)" if hold else "")
         from .ghe import submit_push
         submit_push(build_id)
-        return jsonify({"status": "pushing"})
+        return jsonify({"status": "pushing", "hold_dispatch": hold})
     if action == "reject":
         reason = body.get("reason", "작업자 리뷰 거부")
         jobs.set_build_status(build_id, "fail", completed=True,
@@ -613,6 +620,26 @@ def review_build(build_id):
         logs.slog(row["studio_id"], "[review] 거부 build=%s: %s", build_id, reason)
         return jsonify({"status": "rejected"})
     abort(400, "action은 approve 또는 reject")
+
+
+@app.post("/api/studio/builds/<int:build_id>/dispatch")
+def dispatch_build(build_id):
+    """§6.8 stage 전달 게이트: push만 된(pushed) 회차를 사용자 결정으로 stage
+    검증에 보낸다. 원자적 상태 전이로 이중 전달을 차단한다."""
+    row = _own_build(build_id)
+    conn = db.get_conn()   # 원자적 전이 가드 — rowcount로 이중 전달 차단
+    cur = conn.execute("UPDATE builds SET status='pushing' "
+                       "WHERE build_id=? AND status='pushed'", (build_id,))
+    conn.commit()
+    if cur.rowcount == 0:
+        abort(409, f"stage 전달 대기 상태가 아님: {row['status']}")
+    from . import audit
+    audit.record(current_user(), "stage_dispatch", f"build={build_id}", "ok")
+    logs.slog(row["studio_id"], "[stage] 사용자 결정 → stage 전달 build=%s",
+              build_id)
+    from .ghe import submit_stage
+    submit_stage(build_id)
+    return jsonify({"status": "dispatching"})
 
 
 @app.post("/api/studio/settings/approval-mode")
@@ -725,6 +752,9 @@ def cancel_build(build_id):
             ghe.cancel_run(row["user_id"], row["repo"], row["run_id"])
         except Exception:
             logs.get("app").warning("cancel signal failed run=%s", row["run_id"])
+        jobs.set_build_status(build_id, "cancelled", completed=True)
+    elif row["status"] == "pushed":
+        # §6.8: stage 전달 대기 중 취소 — 실행 스레드가 없으므로 즉시 종결
         jobs.set_build_status(build_id, "cancelled", completed=True)
     from . import audit
     audit.record(current_user(), "cancel", f"build={build_id}", "ok")

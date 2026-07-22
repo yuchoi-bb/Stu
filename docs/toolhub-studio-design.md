@@ -35,6 +35,7 @@
 | 실행 전 리뷰 게이트 (v0.10) | 생성 → 즉시 push/CI | **Step 3.5 작업자 리뷰 게이트** — 승인 후 stage 전달, 승인 모드 선택(매번 확인 기본 / 자동 승인) | runner가 비-ephemeral·네트워크 개방으로 확인됨(§6.4) → 생성 코드가 사람 검토 없이 사내 runner에서 실행되는 경로 차단 |
 | 루프 출구 (v0.10) | Step 3↔5 루프만 존재 | **Step 5 → Step 2 복귀 경로** — requirements 재확정 = 새 studio_id 발급, 기존 studio는 abandoned (이력은 새 studio 컨텍스트로 참조) | 요구조건 자체의 결함은 코드 루프로 해결 불가 — studio_id="확정 requirements 1건" 정의의 자연스러운 귀결 |
 | 이식 순서 (v0.11) | SSO 포함 일괄 배포 | **SSO(Knox 로그인+AWS SSO) 최후순위** — 인프라·DB·GHE·CI 먼저 검증 후 마지막에 SSO 연동(install 런북 A-8) | SSO 연동 리드타임이 길고 무인 자동화가 어려움 → 나머지를 SSO에 볼모 잡히지 않게 분리. `doctor`가 SSO 미설정을 WARN(게이트 비차단)으로 처리 |
+| stage 전달 게이트 (v0.12) | Step 3.5 승인 = push+dispatch 한 동작 | **승인과 stage 전달 결정 분리(§6.8)** — 승인 시 `dispatch=false`면 push까지만(`pushed` 보류), 별도 사용자 결정으로 stage 전달. 기본은 기존대로 한 번에 | 코드 승인 ≠ runner 실행 승인. 검증 타이밍·runner 부하를 사람이 통제하는 §6.4 실행 경계의 연장. 기본 동작 유지로 기존 흐름 무회귀 |
 
 **신원 원칙 (통일)**: AWS도 GHE도 **사용자 본인 계정**. Bedrock은 device flow,
 GHE는 개인 PAT. 서버는 각 사용자의 자격증명을 암호화 대리 보관할 뿐, 모든 행위는 본인 명의.
@@ -540,6 +541,26 @@ studio를 채택(`done`)·포기(`abandoned`)하거나 **재확정으로 새 stu
 취소**한다(`ghe.cancel_studio_inflight`). abandoned 마킹만으로는 stage가 계속 빌드·
 검증해 격리 runner를 낭비하고, 뒤늦은 CI 콜백이 죽은 studio에 적용되려 한다(멱등
 가드가 막지만 낭비는 남는다). ci_running이면 stage에 취소 시그널도 보낸다(§6.2 일관).
+
+### 6.8 stage 전달 게이트 (승인과 전달 결정의 분리)
+
+Step 3.5 승인은 기본적으로 push+stage 검증을 한 번에 진행하지만, **코드 승인과
+"stage에 전달할지" 결정은 분리할 수 있다**. 승인 시 `dispatch=false`를 택하면:
+
+- push까지만 수행하고 회차는 **`pushed`**(stage 전달 보류) 상태로 대기.
+  코드는 작업 브랜치에 커밋되지만 stage runner에서는 아무것도 실행되지 않는다.
+- 사용자가 명시 결정(`POST /builds/<id>/dispatch`, UI "stage 검증 시작" 버튼)하면
+  그때 workflow_dispatch → `ci_running`. **원자적 상태 전이(rowcount 가드)**로
+  이중 전달을 차단한다.
+- 보류 중 취소 가능(`cancelled`, stage 미전달). `pushed`도 활성 회차로 계산되어
+  동시 1건 제한(§4.2)·종결 시 취소 전파(§6.7)에 포함된다. 서버 재시작에도 안전
+  (실행 스레드가 없는 안정 상태라 restart-fail 마킹 대상 아님).
+- 기록: audit `review_approve(stage 보류)` / `stage_dispatch`, slog `[push] … stage
+  보류(pushed)` / `[stage] 사용자 결정`.
+
+용도: 커밋만 먼저 해 두고 브랜치에서 직접 확인 후 검증, stage runner 부하 조절,
+검증 타이밍 통제. §6.4 실행 경계의 연장 — 생성 코드가 runner에서 도는 시점을
+사람이 한 번 더 통제한다. auto_approve 모드는 기존대로 즉시 전달(자동화 목적 유지).
 
 ### 설계 재검토 — 남은 열린 질문 (파일럿 전 판단)
 

@@ -44,7 +44,7 @@
   .chip.ci_running,.chip.pushing,.chip.generating{background:rgba(79,140,255,.15);color:var(--accent)}
   .chip.pass,.chip.done{background:rgba(63,185,106,.15);color:var(--ok)}
   .chip.fail,.chip.push_conflict{background:rgba(224,92,92,.15);color:var(--err)}
-  .chip.awaiting_review{background:rgba(224,166,60,.15);color:var(--warn)}
+  .chip.awaiting_review,.chip.pushed{background:rgba(224,166,60,.15);color:var(--warn)}
   .chip.cancelled,.chip.abandoned,.chip.open{background:rgba(139,147,167,.15);color:var(--fg-dim)}
   .chat{display:flex;flex-direction:column;min-height:0}
   .msgs{flex:1;overflow-y:auto;padding:20px 26px;display:flex;
@@ -281,7 +281,7 @@ function latestBuild() {
   return b.length ? b[b.length - 1] : null;
 }
 const runLabel = s => ({generating: "코드 생성 중…", pushing: "커밋·push 중…",
-  ci_running: "stage 빌드·검증 중…"}[s] || s);
+  pushed: "push 완료 — stage 전달 대기", ci_running: "stage 빌드·검증 중…"}[s] || s);
 
 // ---------- 렌더 ----------
 function render() {
@@ -325,6 +325,8 @@ function renderChat() {
   const d = state.detail?.draft;
   if (d) html += draftCard(d);
   if (state.reviewFiles) html += reviewCard();
+  const lb = latestBuild();
+  if (lb && lb.status === "pushed") html += stageGateCard(lb);   // §6.8
   box.innerHTML = html;
   if (reqEditing !== null && $("reqEdit")) $("reqEdit").value = reqEditing;
   if (nearBottom) box.scrollTop = box.scrollHeight;
@@ -380,7 +382,21 @@ function reviewCard() {
     ${fileView(cur)}
     <div class="foot">
       <button class="btn danger" onclick="reviewBuild('reject')">거부 (사유)</button>
+      <button class="btn" onclick="reviewBuild('approve', false)"
+        title="브랜치에 push만 하고 stage 검증은 별도 결정으로 보류">승인 → push만 (stage 보류)</button>
       <button class="btn primary" onclick="reviewBuild('approve')">승인 → push + 검증</button>
+    </div></div>`;
+}
+// §6.8 stage 전달 게이트: push만 된 회차 — stage로 보낼지 사용자가 결정
+function stageGateCard(b) {
+  return `<div class="card"><div class="head"><span class="step">STAGE</span>
+    stage 전달 결정 — push 완료 (회차 #${b.attempt})
+    <span style="margin-left:auto;color:var(--warn);font-size:11.5px">전달 대기</span></div>
+    <div class="m" style="padding:4px 0">코드는 작업 브랜치에 커밋됐습니다.
+      stage 검증(CI)으로 보낼지 결정하세요. 보내지 않으면 이 회차는 검증 없이 대기합니다.</div>
+    <div class="foot">
+      <button class="btn danger" onclick="cancelBuild(${b.build_id})">회차 취소</button>
+      <button class="btn primary" onclick="dispatchBuild(${b.build_id})">stage 검증 시작</button>
     </div></div>`;
 }
 // 파일 뷰: 수정 파일이면 원문 대비 diff(기본), 신규 파일이면 전문.
@@ -530,12 +546,18 @@ async function approveDraft(draftId) {
   catch (e) { alert(e.message); }
   await refresh();
 }
-async function reviewBuild(action) {
+async function reviewBuild(action, dispatch) {
   let reason = null;
   if (action === "reject") { reason = prompt("거부 사유 (다음 회차에 전달됩니다)"); if (reason === null) return; }
-  try { await post(`/builds/${state.reviewBuild}/review`, {action, reason}); }
+  const body = {action, reason};
+  if (dispatch === false) body.dispatch = false;   // §6.8 stage 보류
+  try { await post(`/builds/${state.reviewBuild}/review`, body); }
   catch (e) { alert(e.message); }
   state.reviewBuild = null; await refresh();
+}
+async function dispatchBuild(id) {   // §6.8: 보류 회차를 stage로 전달
+  try { await post(`/builds/${id}/dispatch`); } catch (e) { alert(e.message); }
+  await refresh();
 }
 async function cancelBuild(id) { await post(`/builds/${id}/cancel`); await refresh(); }
 async function createPr() {

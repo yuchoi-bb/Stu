@@ -239,21 +239,20 @@ def run_push(build_id: int) -> None:
             db.execute("UPDATE build_files SET pushed_blob_sha=? "
                        "WHERE build_id=? AND path=?", (blob, build_id, path))
 
-        _dispatch(b, token)
-        jobs.set_build_status(build_id, "ci_running")
+        # §6.8 stage 전달 게이트: 승인 시 보류를 택했으면 push까지만 하고
+        # stage(CI)로는 보내지 않는다 — 별도 사용자 결정(dispatch 엔드포인트) 대기.
+        if b["hold_dispatch"]:
+            jobs.set_build_status(build_id, "pushed")
+            _log.info("pushed(held) studio=%s attempt=%s commit=%s",
+                      studio_id, b["attempt"], sha[:10])
+            logs.slog(studio_id, "[push] attempt=%s commit=%s → stage 보류(pushed)",
+                      b["attempt"], sha[:10])
+            audit.record(b["user_id"], "push_dispatch",
+                         f"{studio_id}#{b['attempt']}", "pushed", "stage 보류")
+            return
+        _dispatch_and_track(b, token, sha=sha)
         _log.info("pushed+dispatched studio=%s attempt=%s commit=%s",
                   studio_id, b["attempt"], sha[:10])
-        logs.slog(studio_id, "[push] attempt=%s commit=%s → dispatch",
-                  b["attempt"], sha[:10])
-        audit.record(b["user_id"], "push_dispatch",
-                     f"{studio_id}#{b['attempt']}", "ci_running", sha[:10])
-        run_id = _find_run_id(b, token)
-        if run_id:
-            db.execute("UPDATE builds SET run_id=? WHERE build_id=?",
-                       (run_id, build_id))
-            logs.slog(studio_id, "[push] GHE Actions run_id=%s 확보", run_id)
-        else:
-            logs.slog(studio_id, "[push] run_id 미확보(폴러가 재조회)")
     except UnsafePath as e:
         _push_failed(b, "fail", "unsafe_path",
                      f"안전하지 않은 파일 경로 차단 (절대경로/상위 탈출): {e}")
@@ -272,6 +271,58 @@ def run_push(build_id: int) -> None:
     except Exception as e:
         _log.exception("run_push failed build=%s studio=%s", build_id, studio_id)
         _push_failed(b, "fail", "error", f"push error: {e}")
+
+
+def _dispatch_and_track(b, token: str, sha: str | None = None) -> None:
+    """stage 검증 시작: workflow_dispatch → ci_running 전이 + run_id 확보.
+    run_push(즉시 전달)와 run_stage_dispatch(보류 후 전달)가 공유한다."""
+    build_id, studio_id = b["build_id"], b["studio_id"]
+    sha = sha or b["commit_sha"] or ""
+    _dispatch(b, token)
+    jobs.set_build_status(build_id, "ci_running")
+    logs.slog(studio_id, "[push] attempt=%s commit=%s → dispatch (stage 검증 시작)",
+              b["attempt"], sha[:10])
+    audit.record(b["user_id"], "push_dispatch",
+                 f"{studio_id}#{b['attempt']}", "ci_running", sha[:10])
+    run_id = _find_run_id(b, token)
+    if run_id:
+        db.execute("UPDATE builds SET run_id=? WHERE build_id=?",
+                   (run_id, build_id))
+        logs.slog(studio_id, "[push] GHE Actions run_id=%s 확보", run_id)
+    else:
+        logs.slog(studio_id, "[push] run_id 미확보(폴러가 재조회)")
+
+
+def submit_stage(build_id: int) -> None:
+    jobs.submit(run_stage_dispatch, build_id)
+
+
+def run_stage_dispatch(build_id: int) -> None:
+    """§6.8: 보류(pushed)된 회차를 사용자 결정으로 stage에 전달한다."""
+    b = db.one(
+        """SELECT b.*, s.session_id, s.user_id, s.repo, s.branch_name,
+                  u.ghe_login, u.ad_id
+           FROM builds b JOIN studios s ON s.studio_id=b.studio_id
+           JOIN users u ON u.user_id=s.user_id WHERE b.build_id=?""",
+        (build_id,))
+    if b is None:
+        return
+    studio_id = b["studio_id"]
+    logs.slog(studio_id, "[stage] 보류 회차 전달 시작 attempt=%s build=%s",
+              b["attempt"], build_id)
+    try:
+        jobs.checkpoint(build_id)
+        token = get_token(b["user_id"])
+        _cancel_superseded(studio_id, b["attempt"], b["user_id"], b["repo"])
+        _dispatch_and_track(b, token)
+    except GheNotConnected as e:
+        _push_failed(b, "fail", "ghe_disconnected", f"GHE 재연결 필요: {e}")
+    except jobs.Cancelled:
+        raise
+    except Exception as e:
+        _log.exception("stage dispatch failed build=%s studio=%s",
+                       build_id, studio_id)
+        _push_failed(b, "fail", "error", f"stage dispatch error: {e}")
 
 
 def _push_failed(b, status: str, reason: str, summary: str) -> None:
@@ -299,7 +350,8 @@ def cancel_studio_inflight(studio_id: str, user_id: str, repo: str) -> int:
     """
     rows = db.query(
         "SELECT build_id, run_id, status FROM builds WHERE studio_id=? AND status IN "
-        "('generating','awaiting_review','pushing','ci_running')", (studio_id,))
+        "('generating','awaiting_review','pushing','pushed','ci_running')",
+        (studio_id,))
     for r in rows:
         jobs.request_cancel(r["build_id"])   # 실행 중 스레드의 체크포인트 대비
         jobs.set_build_status(r["build_id"], "cancelled", completed=True)

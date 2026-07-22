@@ -39,6 +39,8 @@ _MIGRATIONS = [
     ("builds", "scan_findings", "ALTER TABLE builds ADD COLUMN scan_findings TEXT"),
     ("build_files", "base_content",
      "ALTER TABLE build_files ADD COLUMN base_content TEXT"),
+    ("builds", "hold_dispatch",
+     "ALTER TABLE builds ADD COLUMN hold_dispatch INTEGER NOT NULL DEFAULT 0"),
 ]
 
 

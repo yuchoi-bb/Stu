@@ -111,9 +111,11 @@ CREATE TABLE IF NOT EXISTS builds (
     run_id           INTEGER,               -- GHE Actions run (취소 전파에 필요, §6.2)
     buildid          TEXT,                  -- stage가 발급
     status           TEXT NOT NULL DEFAULT 'generating',
-                     -- generating / awaiting_review / pushing / push_conflict
+                     -- generating / awaiting_review / pushing / pushed / push_conflict
                      -- / ci_running / pass / fail / cancelled
+                     -- pushed = push 완료·stage 전달 보류 (§6.8 stage 전달 게이트)
     cancel_requested INTEGER NOT NULL DEFAULT 0,   -- 취소 플래그 (DB 경유, §4.3)
+    hold_dispatch    INTEGER NOT NULL DEFAULT 0,   -- 승인 시 stage 전달 보류 (§6.8)
     fail_summary     TEXT,                  -- CI 실패 요약 → 다음 회차 컨텍스트 주입
     scan_findings    TEXT,                  -- 위험 패턴 정적 검사 결과 JSON (§12.4)
     created_at       TEXT NOT NULL DEFAULT (datetime('now')),
