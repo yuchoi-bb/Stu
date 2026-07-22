@@ -10,10 +10,12 @@
   python -m studio.manage show-studio <studio_id>
   python -m studio.manage failures [--limit N]
   python -m studio.manage audit [--limit N] [--user U] [--action login|push_dispatch]
+  python -m studio.manage studio-log <studio_id> [--tail N]  # studio별 디버그 로그
   python -m studio.manage users
 """
 import argparse
 import json
+import os
 import sys
 
 from . import audit, db, logs
@@ -120,6 +122,17 @@ def cmd_audit(a):
               f"{r['target'] or ''} -> {r['result'] or ''}")
 
 
+def cmd_studio_log(a):
+    from . import logs
+    path = logs.studio_log_path(a.studio_id)
+    if not os.path.isfile(path):
+        print(f"로그 없음: {path}", file=sys.stderr); sys.exit(1)
+    with open(path, encoding="utf-8") as f:
+        lines = f.readlines()
+    for ln in (lines[-a.tail:] if a.tail else lines):
+        print(ln.rstrip())
+
+
 def cmd_users(_):
     for u in db.query("SELECT user_id, ghe_login, is_admin, auto_approve FROM users "
                       "ORDER BY user_id"):
@@ -154,6 +167,10 @@ def main(argv=None):
     sp.add_argument("--user")
     sp.add_argument("--action", help="예: login / push_dispatch")
     sp.set_defaults(fn=cmd_audit)
+
+    sp = sub.add_parser("studio-log"); sp.add_argument("studio_id")
+    sp.add_argument("--tail", type=int, help="마지막 N줄만")
+    sp.set_defaults(fn=cmd_studio_log)
 
     sub.add_parser("users").set_defaults(fn=cmd_users)
     sub.add_parser("admins").set_defaults(fn=cmd_admins)

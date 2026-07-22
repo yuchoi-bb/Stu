@@ -237,6 +237,8 @@ def run_push(build_id: int) -> None:
         jobs.set_build_status(build_id, "ci_running")
         _log.info("pushed+dispatched studio=%s attempt=%s commit=%s",
                   studio_id, b["attempt"], sha[:10])
+        logs.slog(studio_id, "[push] attempt=%s commit=%s → dispatch",
+                  b["attempt"], sha[:10])
         audit.record(b["user_id"], "push_dispatch",
                      f"{studio_id}#{b['attempt']}", "ci_running", sha[:10])
         run_id = _find_run_id(b, token)
@@ -269,6 +271,8 @@ def _push_failed(b, status: str, reason: str, summary: str) -> None:
                           fail_summary=summary)
     audit.record(b["user_id"], "push_dispatch",
                  f"{b['studio_id']}#{b['attempt']}", status, reason)
+    logs.slog(b["studio_id"], "[push] attempt=%s 실패(%s): %s",
+              b["attempt"], status, reason)
 
 
 def cancel_studio_inflight(studio_id: str, user_id: str, repo: str) -> int:
@@ -408,6 +412,8 @@ def apply_ci_result(studio_id: str, attempt: int, status: str,
     conn.commit()
     if cur.rowcount != 1:
         return True   # 다른 경로가 먼저 종결 — 멱등, 중복 주입 안 함
+    logs.slog(studio_id, "[ci] attempt=%s → %s%s", attempt, status,
+              f" ({fail_summary[:120]})" if fail_summary else "")
     s = db.one("SELECT session_id FROM studios WHERE studio_id=?", (studio_id,))
     if s:
         text = (f"[CI] {studio_id} attempt {attempt}: {status}"

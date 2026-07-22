@@ -301,6 +301,19 @@ def admin_failures():
     return jsonify([dict(r) for r in rows])
 
 
+@app.get("/api/studio/admin/studios/<studio_id>/log")
+def admin_studio_log(studio_id):
+    """studio_id별 디버그 로그 파일 조회 (관리자) — 그 스튜디오의 전 과정 추적."""
+    _require_admin()
+    path = logs.studio_log_path(studio_id)
+    if not os.path.isfile(path):
+        return jsonify({"studio_id": studio_id, "exists": False, "log": ""})
+    with open(path, encoding="utf-8") as f:
+        content = f.read()
+    return jsonify({"studio_id": studio_id, "exists": True,
+                    "log": content[-100_000:]})   # 마지막 100k자
+
+
 @app.get("/api/studio/admin/audit")
 def admin_audit():
     """행위 로그 조회 (§3.1.1, 관리자)."""
@@ -481,6 +494,8 @@ def approve_requirements(draft_id):
 
     from . import audit
     audit.record(user_id, "requirements_approve", studio_id, "ok")
+    logs.slog(studio_id, "[step2] 요구조건 승인 → studio 발급 session=%s build=%s",
+              session_id, build_id)
     from .pipeline import run_generation
     jobs.submit(run_generation, user_id, session_id, studio_id, build_id)
     return jsonify({"studio_id": studio_id, "build_id": build_id, "attempt": 1}), 201
@@ -584,6 +599,7 @@ def review_build(build_id):
     if action == "approve":
         jobs.set_build_status(build_id, "pushing")
         audit.record(current_user(), "review_approve", f"build={build_id}", "ok")
+        logs.slog(row["studio_id"], "[review] 승인 → pushing build=%s", build_id)
         from .ghe import submit_push
         submit_push(build_id)
         return jsonify({"status": "pushing"})
@@ -593,6 +609,7 @@ def review_build(build_id):
                               fail_summary=f"리뷰 거부: {reason}")
         audit.record(current_user(), "review_reject", f"build={build_id}",
                      "rejected", reason)
+        logs.slog(row["studio_id"], "[review] 거부 build=%s: %s", build_id, reason)
         return jsonify({"status": "rejected"})
     abort(400, "action은 approve 또는 reject")
 
@@ -620,6 +637,7 @@ def close_studio(studio_id):
     cancelled = ghe.cancel_studio_inflight(studio_id, row["user_id"], row["repo"])
     db.execute("UPDATE studios SET status=?, completed_at=datetime('now') "
                "WHERE studio_id=?", (status, studio_id))
+    logs.slog(studio_id, "[close] %s (진행중 %d개 취소)", status, cancelled)
     return jsonify({"status": status, "cancelled_builds": cancelled})
 
 
@@ -666,6 +684,8 @@ def create_pr(studio_id):
                (number, url, studio_id))
     audit.record(current_user(), "create_pr", studio_id,
                  "existing" if existing else "created", url)
+    logs.slog(studio_id, "[pr] #%s %s %s", number,
+              "재사용" if existing else "생성", url)
     return jsonify({"pr_number": number, "pr_url": url, "existing": existing})
 
 
