@@ -7,7 +7,6 @@ import datetime as dt
 import logging
 import logging.handlers
 import os
-import re
 import threading
 
 from . import config
@@ -41,11 +40,7 @@ def _log_name_for(studio_id: str, create: bool = False) -> str | None:
         when = None
     if when is None and not create:
         return None
-    # RUNID = studio_id 고유부(ST- 뒤). 유니크성 보장 → 같은 초 충돌 방지.
-    runid = studio_id.split("-", 1)[-1] if "-" in studio_id else studio_id
-    runid = re.sub(r"[^A-Za-z0-9]", "", runid)[:24] or "x"
-    ts = (when or dt.datetime.now()).strftime("%y%m%d-%H%M%S")
-    name = f"S-{ts}-{runid}"
+    name = "S-" + (when or dt.datetime.now()).strftime("%y%m%d-%H%M%S")
     _name_cache[studio_id] = name
     return name
 

@@ -27,9 +27,9 @@ H = {"X-Remote-User": "hong"}
 logs.slog("ST-abc123", "hello %s", "world")
 p = logs.studio_log_path("ST-abc123")   # slog가 create로 이름 캐시 → 동일 파일
 assert p and os.path.isfile(p) and "hello world" in open(p).read()
-# 파일명 형식 S-YYMMDD-HHMMSS-RUNID (RUNID=studio_id 고유부) → 유니크 + 탈출 불가
+# 파일명 형식 S-YYMMDD-HHMMSS (studio 생성 시각 기준) → 경로 탈출 불가
 import re as _re  # noqa: E402
-assert _re.fullmatch(r"S-\d{6}-\d{6}-abc123\.log", os.path.basename(p)), p
+assert _re.fullmatch(r"S-\d{6}-\d{6}\.log", os.path.basename(p)), p
 # 알 수 없는 studio 읽기 → None(로그 없음). 쓰기 경로도 디렉터리를 벗어나지 않음
 assert logs.studio_log_path("../../etc/passwd") is None
 w = logs.studio_log_path("../../etc/passwd2", create=True)

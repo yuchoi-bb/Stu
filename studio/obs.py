@@ -1,6 +1,6 @@
 """OBS(MinIO, S3 호환) 업로드 — 에러 발생 시 studio 디버그 로그를 올려 사후 분석.
 
-에러가 나면 해당 studio의 로그 파일(logs/studio/S-YYMMDD-HHMMSS-RUNID.log)을
+에러가 나면 해당 studio의 로그 파일(logs/studio/S-YYMMDD-HHMMSS.log)을
 OBS의 {OBS_PREFIX}{파일명} 키로 업로드한다. 운영자는 OBS에서 그 키에 접근해
 ERROR 발생 원인을 분석한다. OBS 미설정/실패는 본 흐름을 막지 않는다(best-effort).
 """
@@ -30,7 +30,7 @@ def _client():
 def upload_studio_log(studio_id: str, reason: str | None = None) -> str | None:
     """studio 로그 파일을 OBS에 업로드하고 키를 반환. 미설정/실패 시 None.
 
-    키 = OBS_PREFIX + S-YYMMDD-HHMMSS-RUNID.log (studio별 고유). 재업로드는 갱신.
+    키 = OBS_PREFIX + S-YYMMDD-HHMMSS.log (studio 생성 시각 기준). 재업로드는 갱신.
     """
     if not enabled():
         return None

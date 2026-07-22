@@ -19,7 +19,7 @@ ATTACH_MAX_BYTES = 20 * 1024 * 1024          # §8: 파일당 20MB
 BACKUP_DIR = os.environ.get("STUDIO_BACKUP_DIR", os.path.join(BASE_DIR, "backups"))
 BACKUP_RETENTION_DAYS = int(os.environ.get("STUDIO_BACKUP_RETENTION_DAYS", "30"))
 
-# OBS(MinIO, S3 호환): 에러 발생 시 studio 디버그 로그(S-YYMMDD-HHMMSS-RUNID)를
+# OBS(MinIO, S3 호환): 에러 발생 시 studio 디버그 로그(S-YYMMDD-HHMMSS)를
 # 업로드해 사후 원인 분석. 엔드포인트가 설정돼야 활성(미설정이면 no-op).
 OBS_ENDPOINT = os.environ.get("STUDIO_OBS_ENDPOINT", "")       # 예: https://minio.intra:9000
 OBS_BUCKET = os.environ.get("STUDIO_OBS_BUCKET", "toolhub-studio-logs")

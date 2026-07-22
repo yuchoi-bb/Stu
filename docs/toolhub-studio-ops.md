@@ -54,9 +54,9 @@ sudo systemctl status toolhub-studio
 ### 2.6 에러 원인 분석 — studio 디버그 로그 (로컬 / OBS)
 - studio 하나의 전 과정: `manage.py studio-log <studio_id>` 또는
   `GET /api/studio/admin/studios/<studio_id>/log`. 로컬 파일은
-  `logs/studio/S-YYMMDD-HHMMSS-RUNID.log`.
+  `logs/studio/S-YYMMDD-HHMMSS.log` (studio 생성 시각 기준).
 - **에러(생성 오류·push 실패·CI fail) 발생 시** 그 로그가 **OBS(MinIO)** 로 자동
-  업로드된다(설정 시). OBS에서 `{OBS_PREFIX}S-YYMMDD-HHMMSS-RUNID.log` 키로 접근해
+  업로드된다(설정 시). OBS에서 `{OBS_PREFIX}S-YYMMDD-HHMMSS.log` 키로 접근해
   원인 분석. 객체 Metadata에 `studio_id`·`reason` 포함.
   - 설정: `STUDIO_OBS_ENDPOINT`(MinIO), `STUDIO_OBS_BUCKET`, `STUDIO_OBS_ACCESS_KEY`,
     `STUDIO_OBS_SECRET_KEY`, `STUDIO_OBS_PREFIX`(기본 `error-logs/`). 미설정이면 로컬만.

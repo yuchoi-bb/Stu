@@ -46,11 +46,11 @@ class FakeS3:
 with mock.patch.object(obs, "_client", lambda: FakeS3()):
     key = obs.upload_studio_log("ST-dead1234", "생성 오류: boom")
 
-assert key and key.startswith("error-logs/S-") and key.endswith("-dead1234.log"), key
+assert key and key.startswith("error-logs/S-") and key.endswith(".log"), key
 assert captured["bucket"] == "toolhub-studio-logs"
 assert captured["extra"]["Metadata"]["studio_id"] == "ST-dead1234"
 assert os.path.isfile(captured["path"])       # 실제 로그 파일 경로
-print("OK: 설정 시 studio 로그를 OBS error-logs/S-...-RUNID.log 로 업로드")
+print("OK: 설정 시 studio 로그를 OBS error-logs/S-...log 로 업로드")
 
 # ---------- 존재하지 않는 studio → None ----------
 with mock.patch.object(obs, "_client", lambda: FakeS3()):
