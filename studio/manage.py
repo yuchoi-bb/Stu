@@ -2,6 +2,7 @@
 
 사용:
   python -m studio.manage health
+  python -m studio.manage doctor [--net]                # 이식/설치 종합 진단(게이트)
   python -m studio.manage set-admin <user_id> [--off]   # 마지막 관리자 강등 금지
   python -m studio.manage admins                        # 관리자 목록 + 2인 권장 경고
   python -m studio.manage backup [--dest DIR]           # DB+첨부 백업(30일 보존)
@@ -37,6 +38,157 @@ def cmd_health(_):
           db.one("SELECT COUNT(*) AS n FROM studios WHERE status='open'")["n"])
     print("ci_running builds:",
           db.one("SELECT COUNT(*) AS n FROM builds WHERE status='ci_running'")["n"])
+
+
+# ── 이식/설치 당일 종합 진단 (§install 런북) ───────────────────────────────────
+# 필수 경로·키·설정·스키마·관리자·(선택)네트워크를 한 번에 점검하고 각 실패에
+# 바로 실행할 조치를 붙여 출력한다. FAIL이 하나라도 있으면 exit 1(이식 게이트).
+_EXPECTED_TABLES = {
+    "users", "sessions", "studios", "builds", "build_files", "messages",
+    "requirement_drafts", "prompts", "attachments", "tool_analysis",
+    "user_branch_config", "aws_credentials", "ghe_credentials",
+    "usage_log", "action_log",
+}
+
+
+class _Doctor:
+    def __init__(self):
+        self.fail = 0
+        self.warn = 0
+
+    def ok(self, label, detail=""):
+        print(f"  [PASS] {label}" + (f" — {detail}" if detail else ""))
+
+    def w(self, label, fix):
+        self.warn += 1
+        print(f"  [WARN] {label} — {fix}")
+
+    def f(self, label, fix):
+        self.fail += 1
+        print(f"  [FAIL] {label} — {fix}")
+
+
+def _check_writable(d, path):
+    try:
+        os.makedirs(path, exist_ok=True)
+        probe = os.path.join(path, ".doctor-write-test")
+        with open(probe, "w") as fh:
+            fh.write("ok")
+        os.remove(probe)
+        d.ok(f"쓰기 가능: {path}")
+    except Exception as e:
+        d.f(f"쓰기 불가: {path}", f"디렉터리 권한/소유(toolhub) 확인 — {e}")
+
+
+def cmd_doctor(a):
+    from . import config, metrics
+    d = _Doctor()
+
+    print("── 1. 런타임/파일시스템 ──")
+    try:
+        db.one("SELECT 1")
+        have = {r["name"] for r in db.query(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        missing = _EXPECTED_TABLES - have
+        if missing:
+            d.f(f"스키마 누락 테이블: {', '.join(sorted(missing))}",
+                "manage.py health 로 init_db 재실행(멱등) 후 재확인")
+        else:
+            d.ok("DB 연결 + 스키마", f"{len(_EXPECTED_TABLES)}개 테이블")
+    except Exception as e:
+        d.f("DB 연결 실패", f"STUDIO_DB 경로/권한 확인 — {e}")
+
+    key = config.FERNET_KEY_PATH
+    if not os.path.isfile(key):
+        d.f(f"Fernet 키 없음: {key}",
+            "생성: python -c \"from cryptography.fernet import Fernet;"
+            "open('<path>','wb').write(Fernet.generate_key())\" 후 chmod 600")
+    else:
+        try:
+            from cryptography.fernet import Fernet
+            Fernet(open(key, "rb").read())
+            mode = oct(os.stat(key).st_mode & 0o777)
+            if mode == "0o600":
+                d.ok(f"Fernet 키 유효 (권한 {mode})")
+            else:
+                d.w(f"Fernet 키 유효하나 권한 {mode}", "chmod 600 " + key)
+        except Exception as e:
+            d.f("Fernet 키 손상/무효", f"백업 키로 복구 필요 — {e}")
+
+    import shutil
+    free_mb = shutil.disk_usage(config.BASE_DIR).free // (1024 * 1024)
+    (d.ok if free_mb >= 500 else d.w)(
+        f"디스크 여유 {free_mb}MB",
+        "백업/로그/첨부 정리 — ops §2.4" if free_mb < 500 else "")
+    for path in (config.ATTACH_DIR, config.LOG_DIR, config.BACKUP_DIR,
+                 logs.studio_log_dir()):
+        _check_writable(d, path)
+
+    print("── 2. Bedrock 설정 (§3.2) ──")
+    for name, val in (("STUDIO_SSO_START_URL", config.SSO_START_URL),
+                      ("STUDIO_SSO_ACCOUNT_ID", config.SSO_ACCOUNT_ID),
+                      ("STUDIO_SSO_ROLE_NAME", config.SSO_ROLE_NAME)):
+        (d.ok if val else d.f)(name, "" if val else "AWS SSO device flow 불가 — env 설정")
+    d.ok("MODEL_ID", config.MODEL_ID)
+    d.ok("BEDROCK_REGION", config.BEDROCK_REGION)
+
+    print("── 3. GHE 설정 (§3.3, §6) ──")
+    d.ok("GHE_API_URL", config.GHE_API_URL)
+    if config.GHE_OWNER in ("", "toolhub"):
+        d.w(f"GHE_OWNER={config.GHE_OWNER!r}", "기본값으로 보임 — 실제 org로 STUDIO_GHE_OWNER 설정")
+    else:
+        d.ok("GHE_OWNER", config.GHE_OWNER)
+    if config.GHE_OAUTH_CLIENT_ID and config.GHE_OAUTH_CLIENT_SECRET:
+        d.ok("GHE OAuth", "client id/secret 설정됨(1안)")
+    else:
+        d.w("GHE OAuth 미설정", "OAuth 미사용 시 사용자 PAT 폴백만 가능 — 의도했는지 확인")
+    (d.ok if config.CI_WEBHOOK_SECRET else d.f)(
+        "CI_WEBHOOK_SECRET",
+        "" if config.CI_WEBHOOK_SECRET
+        else "미설정 시 ci-callback HMAC 검증 불가(위조 콜백 위험) — 반드시 설정")
+
+    print("── 4. OBS 에러로그 (선택, §2.6) ──")
+    if not config.OBS_ENDPOINT:
+        print("  [INFO] OBS 미설정 — 로컬 로그만(에러 자동 업로드 비활성)")
+    else:
+        parts = [config.OBS_BUCKET, config.OBS_ACCESS_KEY, config.OBS_SECRET_KEY]
+        (d.ok if all(parts) else d.f)(
+            "OBS 설정", "완전"
+            if all(parts) else "부분 설정 — BUCKET/ACCESS_KEY/SECRET_KEY 모두 필요")
+
+    print("── 5. 운영 전제 ──")
+    n_admin = metrics.admin_count()
+    if n_admin == 0:
+        d.f("관리자 0명", "부트스트랩: manage.py set-admin <user> (2인 권장)")
+    elif n_admin == 1:
+        d.w("관리자 1명", "락아웃 대비 2인 체계 권장 — set-admin 1명 추가")
+    else:
+        d.ok(f"관리자 {n_admin}명")
+    if config.LOG_LEVEL.upper() != "DEBUG":
+        d.w(f"LOG_LEVEL={config.LOG_LEVEL}",
+            "이식 기간엔 STUDIO_LOG_LEVEL=DEBUG 권장(안정화 후 INFO 복귀)")
+    else:
+        d.ok("LOG_LEVEL=DEBUG (이식 기간 적합)")
+
+    if a.net:
+        print("── 6. 네트워크 도달성 (--net) ──")
+        for name, url in (("GHE", config.GHE_API_URL),
+                          ("OBS", config.OBS_ENDPOINT)):
+            if not url:
+                continue
+            try:
+                import requests
+                r = requests.get(url, timeout=5, verify=True)
+                d.ok(f"{name} 도달 ({url})", f"HTTP {r.status_code}")
+            except Exception as e:
+                d.f(f"{name} 도달 실패 ({url})",
+                    f"방화벽/프록시/DNS 확인 — {type(e).__name__}")
+
+    print(f"\n요약: FAIL {d.fail} · WARN {d.warn}")
+    if d.fail:
+        print("→ FAIL 항목을 조치한 뒤 재실행하세요. 이식 진행 보류 권장.", file=sys.stderr)
+        sys.exit(1)
+    print("→ 필수 항목 통과. WARN은 검토 후 진행 가능.")
 
 
 def cmd_set_admin(a):
@@ -145,6 +297,10 @@ def main(argv=None):
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("health").set_defaults(fn=cmd_health)
+
+    sp = sub.add_parser("doctor")
+    sp.add_argument("--net", action="store_true", help="GHE/OBS 도달성까지 점검")
+    sp.set_defaults(fn=cmd_doctor)
 
     sp = sub.add_parser("set-admin"); sp.add_argument("user_id")
     sp.add_argument("--off", action="store_true"); sp.set_defaults(fn=cmd_set_admin)

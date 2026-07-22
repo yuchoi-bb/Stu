@@ -17,6 +17,7 @@ sudo -u toolhub /opt/toolhub/venv/bin/python -m studio.manage health
 ```
 
 - `db: ok` / `disk_free_mb` 충분 / `ci_running builds` 수 확인.
+- 설치/이식 시점 종합 진단은 `manage.py doctor [--net]` (install 런북 §C).
 - 서비스 상태: `systemctl status toolhub-studio`
 - 로그: `journalctl -u toolhub-studio -n 200` + 앱 로그 `/opt/toolhub/data/logs/studio.log`
   (RotatingFileHandler 10MB×5).

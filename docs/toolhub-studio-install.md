@@ -138,6 +138,11 @@ sudo -u toolhub venv/bin/python -m studio.manage users    # 매핑 확인
 
 ## C. 이식/배포 중 디버그 로그 — "어디를 보나"
 
+> **이식 당일 첫 명령**: `manage.py doctor [--net]` — 필수 경로·Fernet 키·DB 스키마·
+> Bedrock/GHE/CI 설정·관리자 수·(옵션)네트워크 도달성을 한 번에 점검하고, 각 실패에
+> **바로 실행할 조치**를 붙여 출력한다. **FAIL이 하나라도 있으면 exit 1** → 이식 진행
+> 게이트로 쓴다. 아래 표는 doctor가 통과한 뒤 런타임에서 문제가 날 때의 지도다.
+
 설치·이식 **전용** 로그 파일이 따로 있지는 않다. 대신 단계별로 봐야 할 곳이 정해져 있다.
 
 | 무엇을 볼 때 | 어디 | 명령 |
@@ -154,6 +159,24 @@ sudo -u toolhub venv/bin/python -m studio.manage users    # 매핑 확인
 **누가 무엇을 했나 = audit**. 로그 레벨은 `STUDIO_LOG_LEVEL=DEBUG`로 올려 이식 기간
 동안 상세히 남기고, 안정화 후 INFO로 되돌린다.
 
+### C-1. 이식 당일 빠른 대응 매트릭스 (증상 → 로그 → 원인 → 조치)
+
+| 증상 | 먼저 볼 로그 | 흔한 원인 | 즉시 조치 |
+|---|---|---|---|
+| 서비스가 안 뜸 / 계속 재시작 | `journalctl -u toolhub-studio -n50` | env 누락·Fernet 키 권한·포트 점유 | `manage.py doctor` → FAIL 항목 조치 |
+| health가 `db: error` | studio.log | STUDIO_DB 경로 권한(toolhub 소유 아님) | `chown toolhub` + `manage.py health` |
+| 로그인은 되는데 500 | studio.log + Apache error | `X-Remote-User` 미주입/스푸핑 필터 순서 | Apache `RequestHeader` 블록 점검(§A-4) |
+| AWS 연결 클릭 시 실패 | studio-log `<id>` | SSO_START_URL/ACCOUNT/ROLE 오설정 | `doctor`로 3개 값 확인 후 재연결 |
+| push가 "GHE 재연결" | studio-log + audit `push_dispatch` | OAuth 미설정/토큰 만료/OWNER 오설정 | `doctor` GHE 항목 → OWNER·OAuth 확인 |
+| CI 콜백이 무시됨 | studio.log | CI_WEBHOOK_SECRET 불일치(HMAC 실패) | 양쪽 시크릿 일치 확인, 재설정 |
+| 생성은 됐는데 CI fail 반복 | studio-log `<id>`(+OBS) | 분석 md stale·프롬프트·실제 코드 이슈 | `show-studio` + OBS 로그로 fail_summary 분석 |
+| build가 `ci_running` 멈춤 | `show-studio <id>` | webhook 유실·run_id 미확보 | 사용자 취소→재생성(ops §2.2) |
+| 원인 불명 에러 사후분석 | **OBS** `error-logs/S-*.log` | — | 에러 시 자동 업로드분 다운로드, reason 메타 확인 |
+
+**대응 루프(3단계)**: ① `doctor`로 설정/전제 확인 → ② 증상별 위 표의 로그 확인 →
+③ 못 잡으면 `STUDIO_LOG_LEVEL=DEBUG` 재기동 후 재현. 에러는 OBS에 자동 축적되므로
+사후에도 같은 키로 재분석 가능하다.
+
 ---
 
 ## D. 롤백 / 안전장치
@@ -168,6 +191,7 @@ sudo -u toolhub venv/bin/python -m studio.manage users    # 매핑 확인
 
 ## E. D-day 체크리스트
 
+- [ ] **`manage.py doctor --net` FAIL 0** (이식 진행 게이트 — 최우선)
 - [ ] A-1~A-3 완료: 계정·venv·env·Fernet·DB·관리자 2인
 - [ ] A-4 Apache: `X-Remote-User` unset 확인(스푸핑 차단) + Location 비충돌
 - [ ] A-5 systemd + 백업 타이머 `enable --now`
