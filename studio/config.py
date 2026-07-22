@@ -19,6 +19,15 @@ ATTACH_MAX_BYTES = 20 * 1024 * 1024          # §8: 파일당 20MB
 BACKUP_DIR = os.environ.get("STUDIO_BACKUP_DIR", os.path.join(BASE_DIR, "backups"))
 BACKUP_RETENTION_DAYS = int(os.environ.get("STUDIO_BACKUP_RETENTION_DAYS", "30"))
 
+# OBS(MinIO, S3 호환): 에러 발생 시 studio 디버그 로그(S-YYMMDD-HHMMSS-RUNID)를
+# 업로드해 사후 원인 분석. 엔드포인트가 설정돼야 활성(미설정이면 no-op).
+OBS_ENDPOINT = os.environ.get("STUDIO_OBS_ENDPOINT", "")       # 예: https://minio.intra:9000
+OBS_BUCKET = os.environ.get("STUDIO_OBS_BUCKET", "toolhub-studio-logs")
+OBS_ACCESS_KEY = os.environ.get("STUDIO_OBS_ACCESS_KEY", "")
+OBS_SECRET_KEY = os.environ.get("STUDIO_OBS_SECRET_KEY", "")
+OBS_PREFIX = os.environ.get("STUDIO_OBS_PREFIX", "error-logs/")  # 키 접두사
+OBS_REGION = os.environ.get("STUDIO_OBS_REGION", "us-east-1")    # MinIO는 임의값 허용
+
 # 모델 정책 (§11): MODEL_ID 고정, 교체 시 스모크 테스트 후 전환
 # Bedrock 모델 ID는 anthropic. 접두사. cross-region inference profile 사용 시
 # 지역 접두사(apac. 등)가 붙은 프로파일 ID로 교체 (§12.1 확인 항목)

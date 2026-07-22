@@ -275,13 +275,19 @@ def run_push(build_id: int) -> None:
 
 
 def _push_failed(b, status: str, reason: str, summary: str) -> None:
-    """push 실패를 build 상태 + 감사 로그에 기록 (성공/실패 모두 push 이력 남김)."""
+    """push 실패를 build 상태 + 감사 로그에 기록 (성공/실패 모두 push 이력 남김).
+    에러이므로 studio 디버그 로그를 OBS에 업로드(사후 원인 분석)."""
     jobs.set_build_status(b["build_id"], status, completed=True,
                           fail_summary=summary)
     audit.record(b["user_id"], "push_dispatch",
                  f"{b['studio_id']}#{b['attempt']}", status, reason)
     logs.slog(b["studio_id"], "[push] attempt=%s 실패(%s): %s",
               b["attempt"], status, reason)
+    try:
+        from . import obs
+        obs.upload_studio_log(b["studio_id"], f"push {status}: {reason}")
+    except Exception:
+        _log.warning("OBS 업로드 훅 실패 studio=%s", b["studio_id"])
 
 
 def cancel_studio_inflight(studio_id: str, user_id: str, repo: str) -> int:
@@ -425,6 +431,12 @@ def apply_ci_result(studio_id: str, attempt: int, status: str,
         return True   # 다른 경로가 먼저 종결 — 멱등, 중복 주입 안 함
     logs.slog(studio_id, "[ci] attempt=%s → %s%s", attempt, status,
               f" ({fail_summary[:120]})" if fail_summary else "")
+    if status == "fail":   # CI 실패 → 디버그 로그 OBS 업로드(사후 원인 분석)
+        try:
+            from . import obs
+            obs.upload_studio_log(studio_id, f"CI fail attempt {attempt}")
+        except Exception:
+            _log.warning("OBS 업로드 훅 실패 studio=%s", studio_id)
     s = db.one("SELECT session_id FROM studios WHERE studio_id=?", (studio_id,))
     if s:
         text = (f"[CI] {studio_id} attempt {attempt}: {status}"

@@ -103,6 +103,7 @@ def run_generation(user_id: str, session_id: str, studio_id: str,
                                   fail_summary="생성 결과에 파일 블록 없음 "
                                                "(```file:path 형식 미준수)")
             logs.slog(studio_id, "[fail] 파일 블록 없음")
+            _on_error(studio_id, "생성 결과 파일 블록 없음")
             return
         store_build_files(build_id, studio_id, files, base_blobs, base_files)
 
@@ -132,6 +133,7 @@ def run_generation(user_id: str, session_id: str, studio_id: str,
         jobs.set_build_status(build_id, "fail", completed=True,
                               fail_summary="AWS 재연결 필요 (SSO 세션 만료)")
         logs.slog(studio_id, "[fail] AWS 재연결 필요")
+        _on_error(studio_id, "AWS 재연결 필요")
     except jobs.Cancelled:
         logs.slog(studio_id, "[cancel] 생성 중 취소 build=%s", build_id)
         raise
@@ -140,6 +142,16 @@ def run_generation(user_id: str, session_id: str, studio_id: str,
         jobs.set_build_status(build_id, "fail", completed=True,
                               fail_summary=f"generation error: {e}")
         logs.slog(studio_id, "[fail] 생성 오류: %s", e)
+        _on_error(studio_id, f"생성 오류: {e}")
+
+
+def _on_error(studio_id: str, reason: str) -> None:
+    """에러 발생 시 studio 디버그 로그를 OBS에 업로드(사후 원인 분석). best-effort."""
+    try:
+        from . import obs
+        obs.upload_studio_log(studio_id, reason)
+    except Exception:
+        _log.warning("OBS 업로드 훅 실패 studio=%s", studio_id)
 
 
 def parse_file_blocks(text: str) -> dict[str, str]:
