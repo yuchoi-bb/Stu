@@ -109,7 +109,37 @@ sudo -u toolhub venv/bin/python -m studio.manage admins   # 관리자 2인 확�
 sudo -u toolhub venv/bin/python -m studio.manage users    # 매핑 확인
 ```
 - 분석 md 등록(§7.2): `manage.py map-analysis a-tool <repo> docs/analysis/a-tool.md`
-- 스모크: UI에서 AWS/GHE 연결 → 요구조건 1건 → 생성 → CI pass 1회 왕복.
+
+### A-7. D-day 스모크 — 첫 사용자 1명 실제 1왕복 (오픈 판정)
+
+설정이 다 맞아도 **실제 생성→CI pass가 한 번 돌아야** 이식 성공이다. 무인 자동화가
+어려운 구간(AWS device flow 승인·GHE OAuth)이라, **첫 사용자 1명이 손으로** 아래를
+한 번 통과시키는 걸 오픈 판정 기준으로 삼는다. 각 단계에서 실패하면 바로 옆의 로그를
+본다(§C-1 매트릭스와 연결).
+
+| # | 단계 | 성공 신호 | 실패 시 볼 곳 |
+|---|---|---|---|
+| 1 | UI 접속(SSO) | 본인 ID로 로그인됨 | Apache error / `audit --action login` |
+| 2 | AWS 연결(device flow 승인) | "AWS 연결됨" 배지 | `studio-log`·`doctor` SSO 3값 |
+| 3 | GHE 연결(OAuth 또는 PAT) | `manage.py users`에 `ghe=<login>` | `doctor` GHE·`audit` |
+| 4 | 작업 브랜치 설정 | 브랜치 저장됨 | `manage.py set-branch` 로 대체 확인 |
+| 5 | 요구조건 1건 입력→**Step 2 승인** | studio 발급(`show-studio`) | studio-log `[step2]` |
+| 6 | 생성 | 파일 생성됨(`[step3] 생성 파일`) | studio-log `[gen]`·OBS |
+| 7 | 리뷰(Step 3.5)→커밋/push | 자유 브랜치에 커밋 | studio-log `push`·`audit push_dispatch` |
+| 8 | **CI 트리거→pass** | build `status=pass`(`show-studio`) | stage run 로그·`failures` |
+| 9 | (선택) PR 생성(§6.6 안 B) | `pr_url` 채워짐 | studio-log `[pr]`·`audit create_pr` |
+
+```bash
+# 스모크 진행 중 실시간 관찰 (관리자 터미널 2개)
+watch -n2 'sudo -u toolhub .../python -m studio.manage show-studio <studio_id>'
+tail -f /opt/toolhub/data/logs/studio/S-*.log      # 해당 studio 디버그 로그
+```
+
+- **판정**: 1왕복이 8번(CI pass)까지 도달하면 오픈 가능. 9번은 선택.
+- 첫 왕복은 `STUDIO_LOG_LEVEL=DEBUG`로 두고 전 구간 로그를 남겨 기준선(baseline)을
+  확보한다. 이후 실사용 문제를 이 기준선과 비교해 빠르게 좁힌다.
+- CI가 fail이면 코드/분석 md/프롬프트 중 어디 문제인지 `fail_summary`(+OBS 로그)로
+  판별 → 분석 md stale이면 갱신(§7.3), 프롬프트 회귀면 prompts 버전 분기(§11).
 
 ---
 
@@ -195,7 +225,8 @@ sudo -u toolhub venv/bin/python -m studio.manage users    # 매핑 확인
 - [ ] A-1~A-3 완료: 계정·venv·env·Fernet·DB·관리자 2인
 - [ ] A-4 Apache: `X-Remote-User` unset 확인(스푸핑 차단) + Location 비충돌
 - [ ] A-5 systemd + 백업 타이머 `enable --now`
-- [ ] A-6 health `healthy:true` + 스모크 1왕복(생성→CI pass)
+- [ ] A-6 health `healthy:true`
+- [ ] **A-7 스모크 1왕복**: 첫 사용자 1명 로그인→AWS/GHE→생성→**CI pass**(오픈 판정)
 - [ ] 분석 md 등록(`map-analysis`)
 - [ ] B-1 접근로그 %u (4개 서비스) — 코드 0줄
 - [ ] B-2 행위이력 record() — 서비스팀 일정에 맞춰(저위험부터)
