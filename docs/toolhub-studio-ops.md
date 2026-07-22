@@ -3,6 +3,9 @@
 > 대상: 관리자(2인 체계 권장, §3.1.2). 장애 대응·토큰 문제·백업 복구를 1인 의존 없이
 > 처리하기 위한 절차. 경로/환경변수는 `deploy/toolhub-studio.service` 기준
 > (`/opt/toolhub`, 데이터 `/opt/toolhub/data`, 백업 `/opt/toolhub/backups`).
+>
+> **최초 설치·이식**(신규 배포, 공통 감사 규약 이식)은 `toolhub-studio-install.md`.
+> 이 문서는 설치 이후의 운영(day-2)만 다룬다.
 
 ## 0. 빠른 점검 (헬스체크)
 
