@@ -34,6 +34,7 @@
 | 실행 모델 (v0.10) | worker 2 × threads 8 | **worker 1 × threads 16 고정** + 취소 플래그 DB화(builds.cancel_requested) | I/O 대기 중심 워크로드라 스레드로 충분. 프로세스 간 메모리 비공유로 인한 취소 유실·스케줄러 이중 실행 문제를 단일 프로세스로 원천 제거 |
 | 실행 전 리뷰 게이트 (v0.10) | 생성 → 즉시 push/CI | **Step 3.5 작업자 리뷰 게이트** — 승인 후 stage 전달, 승인 모드 선택(매번 확인 기본 / 자동 승인) | runner가 비-ephemeral·네트워크 개방으로 확인됨(§6.4) → 생성 코드가 사람 검토 없이 사내 runner에서 실행되는 경로 차단 |
 | 루프 출구 (v0.10) | Step 3↔5 루프만 존재 | **Step 5 → Step 2 복귀 경로** — requirements 재확정 = 새 studio_id 발급, 기존 studio는 abandoned (이력은 새 studio 컨텍스트로 참조) | 요구조건 자체의 결함은 코드 루프로 해결 불가 — studio_id="확정 requirements 1건" 정의의 자연스러운 귀결 |
+| 이식 순서 (v0.11) | SSO 포함 일괄 배포 | **SSO(Knox 로그인+AWS SSO) 최후순위** — 인프라·DB·GHE·CI 먼저 검증 후 마지막에 SSO 연동(install 런북 A-8) | SSO 연동 리드타임이 길고 무인 자동화가 어려움 → 나머지를 SSO에 볼모 잡히지 않게 분리. `doctor`가 SSO 미설정을 WARN(게이트 비차단)으로 처리 |
 
 **신원 원칙 (통일)**: AWS도 GHE도 **사용자 본인 계정**. Bedrock은 device flow,
 GHE는 개인 PAT. 서버는 각 사용자의 자격증명을 암호화 대리 보관할 뿐, 모든 행위는 본인 명의.
@@ -773,7 +774,9 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
 
 ### 12.4 Phase 3 — 오픈 준비
 
-- [ ] Knox SSO 기반 로그인 연동 (프로토콜은 12.1 확인 결과에 따름):
+- [ ] Knox SSO 기반 로그인 연동 (프로토콜은 12.1 확인 결과에 따름) —
+      **이식 시 최후순위(install 런북 A-8)**: 인프라·서비스·DB·GHE·CI를 먼저 올려
+      검증하고 SSO는 마지막에 붙인다. `doctor`도 SSO 미설정을 WARN(게이트 비차단)으로 처리:
   - [ ] Knox SSO 서비스 등록 완료 (신청은 12.1에서 선행)
   - [ ] Apache 인증 모듈 설치·설정 (`mod_auth_mellon` 또는 `mod_auth_openidc`, 폴백 `mod_authnz_ldap`)
   - [ ] REMOTE_USER → Flask 전달 검증 + users 자동 등록(최초 로그인)
@@ -783,7 +786,20 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
 - [x] 행위 로그 공통 규약 적용 (studio): `action_log` 테이블 + `studio/audit.py` + 승인/리뷰/취소/push/ci 기록 + 관리자 조회 — CICD/Release/SignTool 확대는 각 서비스 작업
 - [x] DB 마이그레이션 (스키마 드리프트 방지): idempotent ALTER TABLE ADD COLUMN — 구버전 studio.db 검증 통과 (`studio/db.py`)
 - [x] 로깅 인프라 (§11): 파일 로깅(RotatingFileHandler) + 백그라운드 루프/에러 핸들러 로깅 — 조용한 예외 삼킴 제거 (`studio/logs.py`)
-- [x] health 엔드포인트 + 디버그 조회 (build 상세/실패 목록/audit) + 운영 CLI (`studio/manage.py`: set-admin/set-branch/map-analysis/show-studio/failures/users/health)
+- [x] studio별 디버그 로그: `logs/studio/S-YYMMDD-HHMMSS.log`(생성 시각 기준, 경로 탈출
+      차단) — 한 studio의 생성/스캔/push/CI/리뷰/PR 전 과정을 한 파일에 append
+      (`logs.slog`), 관리자 조회 `GET /admin/studios/<id>/log` + `manage.py studio-log`.
+      테스트 통과
+- [x] 에러 시 OBS(MinIO) 업로드: 생성오류·push실패·CI fail 발생 시 해당 studio 디버그
+      로그를 `{OBS_PREFIX}S-...log` 키로 업로드해 사후 원인 분석(`studio/obs.py`,
+      best-effort, 미설정 시 로컬만). 운영 절차 ops §2.6. 테스트 통과
+- [x] health 엔드포인트 + 디버그 조회 (build 상세/실패 목록/audit) + 운영 CLI
+      (`studio/manage.py`: health/doctor/set-admin/admins/set-branch/map-analysis/
+      show-studio/failures/audit/studio-log/users/backup)
+- [x] 이식/설치 종합 진단 `manage.py doctor [--net]`: 경로·Fernet 키·DB 스키마·
+      Bedrock/GHE/CI 설정·관리자 수·(옵션)네트워크 도달성 점검, 각 실패에 조치 문구,
+      FAIL 시 exit 1(이식 게이트). SSO는 후순위 WARN. `docs/toolhub-studio-install.md`
+      + 증상→로그→원인→조치 매트릭스(§C-1) + D-day 스모크 1왕복(§A-7). 테스트 통과
 - [x] Flask 5000 localhost 바인딩 + Apache 우회 차단 — gunicorn `bind=127.0.0.1:5000`
       (외부 직접 접근 불가), `deploy/apache-toolhub-studio.conf.reference`(SSL·Knox 인증·
       프록시 + **X-Remote-User 스푸핑 차단**: 클라이언트 헤더 unset 후 REMOTE_USER로만 설정).
