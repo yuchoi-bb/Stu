@@ -124,11 +124,13 @@ def cmd_doctor(a):
                  logs.studio_log_dir()):
         _check_writable(d, path)
 
-    print("── 2. Bedrock 설정 (§3.2) ──")
+    print("── 2. Bedrock / AWS SSO 설정 (§3.2, 후순위) ──")
+    # SSO는 이식 최후순위(마지막 단계 A-8). 미설정이어도 게이트를 막지 않도록 WARN 처리.
     for name, val in (("STUDIO_SSO_START_URL", config.SSO_START_URL),
                       ("STUDIO_SSO_ACCOUNT_ID", config.SSO_ACCOUNT_ID),
                       ("STUDIO_SSO_ROLE_NAME", config.SSO_ROLE_NAME)):
-        (d.ok if val else d.f)(name, "" if val else "AWS SSO device flow 불가 — env 설정")
+        (d.ok if val else d.w)(
+            name, "" if val else "후순위(SSO 단계 A-8)에서 설정 — 그 전엔 미설정 정상")
     d.ok("MODEL_ID", config.MODEL_ID)
     d.ok("BEDROCK_REGION", config.BEDROCK_REGION)
 

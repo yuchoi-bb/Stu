@@ -24,6 +24,15 @@ A와 B는 독립이므로 A를 먼저 파일럿하고 B는 서비스팀 일정�
 gunicorn은 `127.0.0.1:5000`만 바인딩(§3.1)하고 외부 노출은 Apache가 담당하므로,
 기존 서비스의 VirtualHost와 **Location만 다르면** 같은 호스트에 공존한다.
 
+> **작업 우선순위(모레) — SSO는 최후순위.** Knox SSO 로그인 연동과 AWS SSO(Bedrock
+> device flow)는 **마지막 단계 A-8**에서 붙인다. 그 전까지(A-1~A-6)는 인프라·서비스·
+> DB·GHE·백업을 먼저 올려 검증하고, UI/생성 경로 점검이 필요하면 **bring-up
+> 바이패스**(로컬 `X-Remote-User` 수동 주입, 아래 A-4 주석)로 확인한다. `doctor`도
+> SSO 미설정을 **WARN(후순위)**로만 표시하고 게이트를 막지 않는다.
+>
+> 순서: **A-1 준비 → A-2 env(SSO 제외) → A-3 키/DB/관리자 → A-4 Apache(프록시先, SSO後)
+> → A-5 systemd/백업 → A-6 검증 → (GHE 스모크) → A-8 SSO 연동(마지막) → A-7 전체 1왕복**.
+
 ### A-1. 사전 준비
 ```bash
 # 전용 계정 · 디렉터리
@@ -48,13 +57,14 @@ STUDIO_DB=/opt/toolhub/data/studio.db
 STUDIO_FERNET_KEY=/opt/toolhub/data/.fernet.key
 STUDIO_ATTACH_DIR=/opt/toolhub/data/attachments
 STUDIO_LOG_DIR=/opt/toolhub/data/logs
-# ── Bedrock (§3.2) ──
+# ── Bedrock 모델 (§3.2) ──
 STUDIO_MODEL_ID=<inference-profile-or-model-id>
 STUDIO_BEDROCK_REGION=<region>
-STUDIO_SSO_START_URL=<aws-sso-start-url>
-STUDIO_SSO_REGION=<region>
-STUDIO_SSO_ACCOUNT_ID=<account>
-STUDIO_SSO_ROLE_NAME=<role>
+# ── AWS SSO (§3.2) — 후순위(A-8)에서 채운다. A-1~A-7 동안 비워둬도 됨 ──
+STUDIO_SSO_START_URL=<aws-sso-start-url>       # A-8
+STUDIO_SSO_REGION=<region>                     # A-8
+STUDIO_SSO_ACCOUNT_ID=<account>                # A-8
+STUDIO_SSO_ROLE_NAME=<role>                    # A-8
 # ── GHE (§3.3, §6) ──
 STUDIO_GHE_BASE=https://github.samsungds.net
 STUDIO_GHE_API=https://github.samsungds.net/api/v3
@@ -85,13 +95,21 @@ sudo -u toolhub venv/bin/python -m studio.manage set-admin <user1>
 sudo -u toolhub venv/bin/python -m studio.manage set-admin <user2>
 ```
 
-### A-4. Apache 리버스 프록시 + Knox SSO
-`deploy/apache-toolhub-studio.conf.reference` 사용. **반드시 확인할 3가지**:
-1. `RequestHeader unset X-Remote-User` — 클라이언트발 스푸핑 헤더 제거 후, SSO가
-   인증한 `REMOTE_USER`만 `X-Remote-User`로 넣는다(§3.1 신뢰 경계).
-2. `ProxyPass /api/studio http://127.0.0.1:5000/api/studio` — 기존 서비스 Location과
+### A-4. Apache 리버스 프록시 (SSO 인증은 A-8로 분리)
+`deploy/apache-toolhub-studio.conf.reference` 사용. **지금(A-4)은 프록시 골격만** 올리고
+**Knox SSO 인증 블록은 A-8에서** 켠다. 지금 확인할 것:
+1. `ProxyPass /api/studio http://127.0.0.1:5000/api/studio` — 기존 서비스 Location과
    겹치지 않는 경로.
+2. `RequestHeader unset X-Remote-User` — 클라이언트발 스푸핑 헤더 제거(§3.1 신뢰 경계).
+   **이 unset은 SSO 유무와 무관하게 항상 켜 둔다.** SSO가 붙기 전(A-8 전)에는 그 아래
+   `REQUEST_HEADER` 주입이 없으므로 인증 사용자가 없다.
 3. 접근로그 `%u` LogFormat(= B의 로그인 이력 커버, 아래 B-1).
+
+> **bring-up 바이패스(SSO 붙기 전 UI/생성 점검용, 로컬 한정)**: A-8 전에 경로를
+> 검증하려면 **서버 내부에서만**(127.0.0.1) 테스트 헤더로 호출한다 —
+> `curl -H 'X-Remote-User: <tester>' http://127.0.0.1:5000/api/studio/...`.
+> ⚠ 외부에 열린 Apache는 위 `unset`이 이 헤더를 반드시 제거하므로 우회로가 되지 않는다.
+> 이 바이패스는 로컬 스모크 전용이며 A-8에서 SSO가 붙으면 더는 필요 없다.
 
 ### A-5. systemd 등록 + 백업 타이머
 ```bash
@@ -110,17 +128,41 @@ sudo -u toolhub venv/bin/python -m studio.manage users    # 매핑 확인
 ```
 - 분석 md 등록(§7.2): `manage.py map-analysis a-tool <repo> docs/analysis/a-tool.md`
 
+> 여기까지(A-1~A-6)가 **SSO 없이** 검증 가능한 범위다. GHE 연결/브랜치/생성/커밋/CI는
+> bring-up 바이패스(A-4)로 먼저 점검해 둘 수 있다. 로그인 인증만 A-8에서 붙인다.
+
+### A-8. SSO 연동 (후순위 — 마지막 단계)
+
+두 갈래를 여기서 붙인다. 앞 단계가 다 초록(`doctor` FAIL 0)이 된 뒤 진행한다.
+
+1. **Knox SSO 로그인**(웹 UI 인증) — A-4에서 올린 Apache 프록시에 인증 블록 추가:
+   프로토콜에 맞춰 `mod_auth_mellon`(SAML) 또는 `mod_auth_openidc`(OIDC)로 보호하고,
+   인증된 `REMOTE_USER`를 `RequestHeader set X-Remote-User %{REMOTE_USER}s`로 주입.
+   **`unset`(A-4-2) 다음 줄에 set이 오도록** 순서를 지킨다(스푸핑 차단 유지).
+2. **AWS SSO**(Bedrock device flow) — `studio.env`의 `STUDIO_SSO_*` 4값을 채우고
+   `systemctl restart toolhub-studio`. 사용자는 UI "AWS 연결"에서 승인 링크로 1회 승인.
+
+검증:
+```bash
+sudo -u toolhub .../python -m studio.manage doctor    # SSO WARN → PASS 로 바뀌는지
+# 실제 SSO 로그인(브라우저)으로 접속 → 본인 ID 표시 + audit 로그인 이력 기록 확인
+sudo -u toolhub .../python -m studio.manage audit --action login --limit 5
+```
+- 완료 후 **bring-up 바이패스는 더 쓰지 않는다**(외부 경로엔 원래 통하지도 않음).
+- SSO가 늦어지면 A-1~A-6 + GHE 스모크까지는 이미 검증돼 있으니, SSO만 붙이면
+  곧바로 A-7 전체 1왕복으로 넘어갈 수 있다.
+
 ### A-7. D-day 스모크 — 첫 사용자 1명 실제 1왕복 (오픈 판정)
 
-설정이 다 맞아도 **실제 생성→CI pass가 한 번 돌아야** 이식 성공이다. 무인 자동화가
-어려운 구간(AWS device flow 승인·GHE OAuth)이라, **첫 사용자 1명이 손으로** 아래를
-한 번 통과시키는 걸 오픈 판정 기준으로 삼는다. 각 단계에서 실패하면 바로 옆의 로그를
-본다(§C-1 매트릭스와 연결).
+**A-8까지 끝난 뒤** 실행한다(로그인·AWS 연결이 필요하므로). 설정이 다 맞아도 **실제
+생성→CI pass가 한 번 돌아야** 이식 성공이다. 무인 자동화가 어려운 구간(AWS device flow
+승인·GHE OAuth)이라, **첫 사용자 1명이 손으로** 아래를 한 번 통과시키는 걸 오픈 판정
+기준으로 삼는다. 각 단계에서 실패하면 바로 옆의 로그를 본다(§C-1 매트릭스와 연결).
 
 | # | 단계 | 성공 신호 | 실패 시 볼 곳 |
 |---|---|---|---|
-| 1 | UI 접속(SSO) | 본인 ID로 로그인됨 | Apache error / `audit --action login` |
-| 2 | AWS 연결(device flow 승인) | "AWS 연결됨" 배지 | `studio-log`·`doctor` SSO 3값 |
+| 1 | UI 접속(Knox SSO, **A-8**) | 본인 ID로 로그인됨 | Apache error / `audit --action login` |
+| 2 | AWS 연결(device flow 승인, **A-8**) | "AWS 연결됨" 배지 | `studio-log`·`doctor` SSO 3값 |
 | 3 | GHE 연결(OAuth 또는 PAT) | `manage.py users`에 `ghe=<login>` | `doctor` GHE·`audit` |
 | 4 | 작업 브랜치 설정 | 브랜치 저장됨 | `manage.py set-branch` 로 대체 확인 |
 | 5 | 요구조건 1건 입력→**Step 2 승인** | studio 발급(`show-studio`) | studio-log `[step2]` |
@@ -221,13 +263,16 @@ tail -f /opt/toolhub/data/logs/studio/S-*.log      # 해당 studio 디버그 로
 
 ## E. D-day 체크리스트
 
-- [ ] **`manage.py doctor --net` FAIL 0** (이식 진행 게이트 — 최우선)
-- [ ] A-1~A-3 완료: 계정·venv·env·Fernet·DB·관리자 2인
-- [ ] A-4 Apache: `X-Remote-User` unset 확인(스푸핑 차단) + Location 비충돌
+> 순서대로. **SSO(A-8)는 최후순위** — 위 GHE 스모크까지 끝낸 뒤 붙인다.
+
+- [ ] **`manage.py doctor` FAIL 0** (SSO는 WARN 허용 — 게이트 통과, 최우선)
+- [ ] A-1~A-3 완료: 계정·venv·env(SSO 제외)·Fernet·DB·관리자 2인
+- [ ] A-4 Apache 프록시: `X-Remote-User` unset(스푸핑 차단) + Location 비충돌
 - [ ] A-5 systemd + 백업 타이머 `enable --now`
-- [ ] A-6 health `healthy:true`
-- [ ] **A-7 스모크 1왕복**: 첫 사용자 1명 로그인→AWS/GHE→생성→**CI pass**(오픈 판정)
-- [ ] 분석 md 등록(`map-analysis`)
+- [ ] A-6 health `healthy:true` + 분석 md 등록(`map-analysis`)
+- [ ] (SSO 전) GHE 연결·브랜치·생성·커밋·CI를 bring-up 바이패스로 선점검
 - [ ] B-1 접근로그 %u (4개 서비스) — 코드 0줄
 - [ ] B-2 행위이력 record() — 서비스팀 일정에 맞춰(저위험부터)
+- [ ] **A-8 SSO 연동(마지막)**: Knox 로그인 + AWS SSO → `doctor` SSO PASS 확인
+- [ ] **A-7 스모크 1왕복**: 첫 사용자 로그인→AWS/GHE→생성→**CI pass**(오픈 판정)
 - [ ] `STUDIO_LOG_LEVEL=DEBUG` 이식 기간 → 안정화 후 INFO

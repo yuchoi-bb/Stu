@@ -38,20 +38,20 @@ def run_doctor(net=False):
 # ---------- 미설정 → FAIL 다수, exit 1 ----------
 code, out = run_doctor()
 assert code == 1, out
-assert "[FAIL] STUDIO_SSO_START_URL" in out
+# SSO는 후순위 → FAIL이 아니라 WARN (게이트를 막지 않음)
+assert "[WARN] STUDIO_SSO_START_URL" in out, out
+assert "[FAIL] STUDIO_SSO_START_URL" not in out, out
 assert "CI_WEBHOOK_SECRET" in out
 assert "관리자 0명" in out
 assert "요약: FAIL" in out
-print("OK: 미설정 환경은 FAIL + exit 1 (이식 게이트)")
+print("OK: 미설정 환경은 FAIL + exit 1 (SSO는 후순위 WARN)")
 
 # ---------- 필수 채우기 → exit 0 ----------
 from cryptography.fernet import Fernet    # noqa: E402
 with open(config.FERNET_KEY_PATH, "wb") as f:
     f.write(Fernet.generate_key())
 os.chmod(config.FERNET_KEY_PATH, 0o600)
-config.SSO_START_URL = "https://sso.intra/start"
-config.SSO_ACCOUNT_ID = "123456789012"
-config.SSO_ROLE_NAME = "ToolhubBedrock"
+# SSO(후순위)는 일부러 미설정 그대로 둔다 — 그래도 게이트를 통과해야 한다
 config.CI_WEBHOOK_SECRET = "s3cret"
 config.GHE_OWNER = "realorg"
 config.GHE_OAUTH_CLIENT_ID = "cid"
@@ -60,10 +60,11 @@ db.execute("INSERT INTO users (user_id, is_admin) VALUES ('a',1)")
 db.execute("INSERT INTO users (user_id, is_admin) VALUES ('b',1)")
 
 code, out = run_doctor()
-assert code == 0, out
+assert code == 0, out                       # SSO 미설정이어도 FAIL 0 → 통과
 assert "[FAIL]" not in out, out
+assert "[WARN] STUDIO_SSO_START_URL" in out  # 후순위로 남아 WARN만
 assert "필수 항목 통과" in out
-print("OK: 필수 항목을 채우면 FAIL 0 + exit 0")
+print("OK: 필수 충족 시 SSO 미설정이어도 FAIL 0 + exit 0 (SSO 후순위)")
 
 # ---------- 스키마 자기치유 (init_db 멱등) ----------
 db.execute("DROP TABLE action_log")
