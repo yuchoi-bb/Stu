@@ -18,12 +18,15 @@ CI/CD(studio-verify.yml, workflow_dispatch)로 검증하는 내부 도구. 실�
 
 ## 개발 명령
 ```bash
+bash scripts/preflight.sh   # 배포 준비 게이트: 의존성·부팅·테스트·E2E데모·린트 한 번에
 python tests/run_all.py     # 전체 테스트(22 스위트) — 반드시 green 유지
 ruff check .                # 린트(ruff.toml, line-length 100, E/W/F)
-python -m studio.manage doctor [--net]   # 이식/설치 종합 진단
+python scripts/demo.py      # 엔드투엔드 데모(전체 파이프라인 완주, 산 문서 겸 스모크)
+python -m studio.manage doctor [--net]   # 대상 서버 환경 진단(경로/키/설정/도달성)
 python -m studio.manage health           # 상태 점검
 ```
-커밋 전 **테스트 + 린트 green** 확인. SessionStart 훅이 린트/의존성을 자동 점검.
+커밋 전 **테스트 + 린트 green** 확인. 배포 전 **`preflight.sh`(코드) + `doctor`(서버 환경)**
+둘 다 통과. SessionStart 훅이 린트/의존성을 자동 점검.
 
 ## 하드 제약 (지키지 않으면 회귀/보안 사고)
 - **`.github/workflows` 수정 금지.**

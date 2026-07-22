@@ -265,6 +265,7 @@ tail -f /opt/toolhub/data/logs/studio/S-*.log      # 해당 studio 디버그 로
 
 > 순서대로. **SSO(A-8)는 최후순위** — 위 GHE 스모크까지 끝낸 뒤 붙인다.
 
+- [ ] **`bash scripts/preflight.sh` PASS** (배포 전 코드 준비도 — 의존성·부팅·테스트·E2E·린트)
 - [ ] **`manage.py doctor` FAIL 0** (SSO는 WARN 허용 — 게이트 통과, 최우선)
 - [ ] A-1~A-3 완료: 계정·venv·env(SSO 제외)·Fernet·DB·관리자 2인
 - [ ] A-4 Apache 프록시: `X-Remote-User` unset(스푸핑 차단) + Location 비충돌
