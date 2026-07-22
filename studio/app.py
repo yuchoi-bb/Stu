@@ -306,7 +306,7 @@ def admin_studio_log(studio_id):
     """studio_id별 디버그 로그 파일 조회 (관리자) — 그 스튜디오의 전 과정 추적."""
     _require_admin()
     path = logs.studio_log_path(studio_id)
-    if not os.path.isfile(path):
+    if not path or not os.path.isfile(path):
         return jsonify({"studio_id": studio_id, "exists": False, "log": ""})
     with open(path, encoding="utf-8") as f:
         content = f.read()

@@ -23,15 +23,17 @@ jobs.submit = lambda fn, *a, **k: fn(*a, **k)
 client = app.test_client()
 H = {"X-Remote-User": "hong"}
 
-# ---------- slog: 파일 경로/append/파일명 살균 ----------
+# ---------- slog: 파일 경로/append ----------
 logs.slog("ST-abc123", "hello %s", "world")
-p = logs.studio_log_path("ST-abc123")
-assert os.path.isfile(p) and "hello world" in open(p).read()
-# 위험 문자 살균 (경로 탈출 방지): 슬래시가 제거돼 studios 디렉터리를 벗어나지 못함
-bad = logs.studio_log_path("../../etc/passwd")
-assert os.path.dirname(bad) == logs.studio_log_dir(), bad
-assert "/" not in os.path.basename(bad)
-print("OK: slog 파일 append + 파일명 살균(경로 탈출 차단)")
+p = logs.studio_log_path("ST-abc123")   # slog가 create로 이름 캐시 → 동일 파일
+assert p and os.path.isfile(p) and "hello world" in open(p).read()
+# 파일명은 studio_id가 아니라 생성시각 기반(S...) → studio_id 경유 경로 탈출 불가
+assert os.path.basename(p).startswith("S") and os.path.basename(p).endswith(".log")
+# 알 수 없는 studio 읽기 → None(로그 없음). 쓰기 경로도 디렉터리를 벗어나지 않음
+assert logs.studio_log_path("../../etc/passwd") is None
+w = logs.studio_log_path("../../etc/passwd2", create=True)
+assert os.path.dirname(w) == logs.studio_log_dir() and "/" not in os.path.basename(w)
+print("OK: slog append + S시각파일명 + 경로 탈출 차단")
 
 # ---------- 생성 흐름이 studio 파일에 남는지 (E2E) ----------
 db.execute("INSERT OR IGNORE INTO users (user_id) VALUES ('hong')")

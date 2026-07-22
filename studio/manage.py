@@ -125,8 +125,8 @@ def cmd_audit(a):
 def cmd_studio_log(a):
     from . import logs
     path = logs.studio_log_path(a.studio_id)
-    if not os.path.isfile(path):
-        print(f"로그 없음: {path}", file=sys.stderr); sys.exit(1)
+    if not path or not os.path.isfile(path):
+        print(f"로그 없음: {a.studio_id}", file=sys.stderr); sys.exit(1)
     with open(path, encoding="utf-8") as f:
         lines = f.readlines()
     for ln in (lines[-a.tail:] if a.tail else lines):

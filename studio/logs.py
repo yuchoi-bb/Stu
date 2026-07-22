@@ -14,15 +14,42 @@ from . import config
 
 _configured = False
 _slog_lock = threading.Lock()
+_name_cache: dict[str, str] = {}   # studio_id -> 로그 파일명(S%y%m%d-%H%M%S)
 
 
 def studio_log_dir() -> str:
-    return os.path.join(config.LOG_DIR, "studios")
+    return os.path.join(config.LOG_DIR, "studio")
 
 
-def studio_log_path(studio_id: str) -> str:
-    safe = re.sub(r"[^A-Za-z0-9._-]", "_", str(studio_id))[:80]
-    return os.path.join(studio_log_dir(), safe + ".log")
+def _log_name_for(studio_id: str, create: bool = False) -> str | None:
+    """studio 생성 시각 기준 파일명 S%y%m%d-%H%M%S. created_at을 쓰므로 재기동·
+    반복 호출에도 같은 파일로 안정(캐시로 고정).
+
+    create=False(읽기): DB에 없고 캐시에도 없으면 None(=읽을 로그 없음).
+    create=True(쓰기): created_at 없으면 현재 시각 폴백으로 이름을 만든다.
+    """
+    cached = _name_cache.get(studio_id)
+    if cached:
+        return cached
+    when = None
+    try:
+        from . import db
+        row = db.one("SELECT created_at FROM studios WHERE studio_id=?", (studio_id,))
+        if row and row["created_at"]:
+            when = dt.datetime.fromisoformat(row["created_at"])
+    except Exception:
+        when = None
+    if when is None and not create:
+        return None
+    name = "S" + (when or dt.datetime.now()).strftime("%y%m%d-%H%M%S")
+    name = re.sub(r"[^A-Za-z0-9._-]", "_", name)   # 방어적 파일명 안전
+    _name_cache[studio_id] = name
+    return name
+
+
+def studio_log_path(studio_id: str, create: bool = False) -> str | None:
+    name = _log_name_for(studio_id, create=create)
+    return os.path.join(studio_log_dir(), name + ".log") if name else None
 
 
 def slog(studio_id: str | None, msg: str, *args) -> None:
@@ -37,7 +64,7 @@ def slog(studio_id: str | None, msg: str, *args) -> None:
         os.makedirs(studio_log_dir(), exist_ok=True)
         line = (dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " "
                 + (msg % args if args else msg))
-        with _slog_lock, open(studio_log_path(studio_id), "a",
+        with _slog_lock, open(studio_log_path(studio_id, create=True), "a",
                               encoding="utf-8") as f:
             f.write(line + "\n")
     except Exception:
