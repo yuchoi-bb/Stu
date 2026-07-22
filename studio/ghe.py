@@ -186,11 +186,14 @@ def run_push(build_id: int) -> None:
     if b is None:
         return
     session_id, studio_id = b["session_id"], b["studio_id"]
+    logs.slog(studio_id, "[push] 시작 attempt=%s build=%s repo=%s branch=%s",
+              b["attempt"], build_id, b["repo"], b["branch_name"])
     try:
         jobs.checkpoint(build_id)
         if not b["branch_name"]:
             jobs.set_build_status(build_id, "fail", completed=True,
                                   fail_summary="작업 브랜치 미설정 (설정에서 지정)")
+            logs.slog(studio_id, "[push] 실패: 작업 브랜치 미설정")
             return
         token = get_token(b["user_id"])
 
@@ -223,6 +226,9 @@ def run_push(build_id: int) -> None:
         message = (f"[studio] id={studio_id} attempt={b['attempt']} "
                    f"session={session_id}\n\nToolHub Studio 생성 커밋")
         author = b["ghe_login"] or b["ad_id"] or b["user_id"]
+        logs.slog(studio_id, "[push] 커밋 파일 %d개 %s (blob가드 base %d건)",
+                  len(files), list(files.keys()),
+                  sum(1 for v in base_blobs.values() if v))
         sha, pushed = commit_and_push(
             remote_url(b["repo"], token), b["branch_name"], files, base_blobs,
             author, f"{author}@users.noreply.{config.GHE_BASE_URL.split('://')[1]}",
@@ -245,6 +251,9 @@ def run_push(build_id: int) -> None:
         if run_id:
             db.execute("UPDATE builds SET run_id=? WHERE build_id=?",
                        (run_id, build_id))
+            logs.slog(studio_id, "[push] GHE Actions run_id=%s 확보", run_id)
+        else:
+            logs.slog(studio_id, "[push] run_id 미확보(폴러가 재조회)")
     except UnsafePath as e:
         _push_failed(b, "fail", "unsafe_path",
                      f"안전하지 않은 파일 경로 차단 (절대경로/상위 탈출): {e}")
@@ -295,6 +304,8 @@ def cancel_studio_inflight(studio_id: str, user_id: str, repo: str) -> int:
                 _log.warning("studio 종결 취소 시그널 실패 run=%s", r["run_id"])
     if rows:
         _log.info("studio %s 종결 — 진행 회차 %d개 취소", studio_id, len(rows))
+        logs.slog(studio_id, "[cancel] 종결 — 진행 회차 %d개 취소(run 취소 시그널 포함)",
+                  len(rows))
     return len(rows)
 
 
@@ -455,6 +466,9 @@ def _poll_loop() -> None:
                                            else f"CI conclusion: {concl}"):
                             _log.info("ci poll resolved studio=%s attempt=%s -> %s",
                                       r["studio_id"], r["attempt"], status)
+                            logs.slog(r["studio_id"],
+                                      "[ci] 폴러가 결과 확인 run=%s → %s",
+                                      r["run_id"], status)
                 except Exception:
                     _log.warning("ci poll error run=%s", r["run_id"])
         except Exception:

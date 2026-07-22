@@ -541,6 +541,7 @@ def post_message():
         build_id = db.execute("INSERT INTO builds (studio_id, attempt) VALUES (?,?)",
                               (studio_id, attempt))
 
+    logs.slog(studio_id, "[msg] 사용자 메시지 → 회차 #%s 생성 build=%s", attempt, build_id)
     from . import metrics
     from .pipeline import run_generation
     jobs.submit(metrics.maybe_summarize, user_id, session_id)  # §4.2, 베스트에포트
@@ -727,6 +728,8 @@ def cancel_build(build_id):
         jobs.set_build_status(build_id, "cancelled", completed=True)
     from . import audit
     audit.record(current_user(), "cancel", f"build={build_id}", "ok")
+    logs.slog(row["studio_id"], "[cancel] 사용자 취소 요청 build=%s (상태 %s)",
+              build_id, row["status"])
     return jsonify({"status": "cancel_requested"})
 
 

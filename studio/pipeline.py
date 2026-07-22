@@ -79,12 +79,18 @@ def run_generation(user_id: str, session_id: str, studio_id: str,
         messages = build_history(session_id)
         messages = _inject_requirements_and_fails(messages, studio, studio_id,
                                                   base_files)
+        logs.slog(studio_id, "[step3] pass2 호출 — 메시지 %d개, 캐시컨텍스트 %d자",
+                  len(messages), len(cached or ""))
         # Step 3 pass 2: 원문 컨텍스트 포함 재호출
         resp = invoke_claude(user_id, session_id, messages,
                              prompts.get("generate"),
                              studio_id=studio_id, build_id=build_id,
                              cached_context=cached)
         jobs.checkpoint(build_id)
+        u = resp.get("usage", {})
+        logs.slog(studio_id, "[step3] 응답 수신 — 토큰 in=%s out=%s cache=%s",
+                  u.get("inputTokens"), u.get("outputTokens"),
+                  u.get("cacheReadInputTokens"))
         text = response_text(resp)
         db.execute("INSERT INTO messages (session_id, role, content) VALUES (?,?,?)",
                    (session_id, "assistant", text))
@@ -190,6 +196,9 @@ def store_build_files(build_id: int, studio_id: str, files: dict[str, str],
             "base_content=excluded.base_content",
             (build_id, path, content, lines, warn, base_blobs.get(path),
              base_files.get(path)))
+        logs.slog(studio_id, "  [store] %s %d줄%s%s", path, lines,
+                  " (수정)" if base_files.get(path) else " (신규)",
+                  " ⚠라인급감" if warn else "")
 
 
 def _fetch_originals(user_id, studio, analysis_ctx, session_id, studio_id,
@@ -200,6 +209,7 @@ def _fetch_originals(user_id, studio, analysis_ctx, session_id, studio_id,
     (신규 파일만 생성하거나, blob 가드가 폴백 경로로 동작).
     """
     if not studio or not studio["repo"] or not studio["branch_name"]:
+        logs.slog(studio_id, "  [pass1] repo/branch 미설정 → 원문 fetch 생략")
         return {}, {}
     try:
         from . import ghe, ghe_git
@@ -210,6 +220,7 @@ def _fetch_originals(user_id, studio, analysis_ctx, session_id, studio_id,
         resp = invoke_claude(user_id, session_id, select_msgs,
                              prompts.get("select_files"))
         paths = parse_paths_block(response_text(resp))
+        logs.slog(studio_id, "  [pass1] 수정대상 지목=%s", paths or "없음")
         if not paths:
             return {}, {}   # 전부 신규 생성 — 원문 fetch 불필요
         token = ghe.get_token(user_id)
@@ -220,11 +231,17 @@ def _fetch_originals(user_id, studio, analysis_ctx, session_id, studio_id,
                 got = ghe_git.fetch_file(remote, studio["branch_name"], path)
             except ghe_git.UnsafePath:
                 _log.warning("unsafe pass-1 경로 무시: %s", path)   # 임의 파일 읽기 차단
+                logs.slog(studio_id, "  [pass1] 안전하지 않은 경로 무시: %s", path)
                 continue
             if got:
                 originals[path], blobs[path] = got
+                logs.slog(studio_id, "  [pass1] 원문 fetch %s (%d자, blob %s)",
+                          path, len(got[0]), (got[1] or "")[:10])
+            else:
+                logs.slog(studio_id, "  [pass1] 원문 없음(신규 취급): %s", path)
         return originals, blobs
-    except Exception:
+    except Exception as e:
+        logs.slog(studio_id, "  [pass1] fetch 실패(신규 생성으로 폴백): %s", e)
         return {}, {}
 
 
