@@ -692,6 +692,10 @@ Step 5. CI 결과 자동 주입 → Step 3 루프 (사용자 판단 병행) — 
   문제 해결, 백업 복구 절차) 작성 — 1인 의존 탈피
 - **모델 버전 대응**: MODEL_ID 교체 시 대표 요구조건 3~5건으로 스모크 테스트(생성→CI pass
   확인) 후 전환. 프롬프트 회귀 발견 시 prompts 테이블에서 버전 분기
+- **코드 품질 게이트(개발)**: 정적 분석 `ruff`(설정 `ruff.toml`, line-length 100, E/W/F)
+  + 테스트 스위트 `python tests/run_all.py`(전 스위트 green 유지). SessionStart 훅이
+  린트/의존성을 자동 점검. 이는 **Studio 코드베이스 자체**의 품질 게이트로, 사용자가
+  생성한 tool 코드를 검증하는 stage CI/CD(§6.2)와는 별개다.
 
 ---
 
