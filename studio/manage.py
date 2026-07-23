@@ -159,6 +159,12 @@ def cmd_doctor(a):
             if all(parts) else "부분 설정 — BUCKET/ACCESS_KEY/SECRET_KEY 모두 필요")
 
     print("── 5. 운영 전제 ──")
+    # 인증 우회 폴백이 프로덕션에 켜져 있으면 SSO를 우회한다 — 반드시 제거.
+    if os.environ.get("STUDIO_DEV_USER"):
+        d.f("STUDIO_DEV_USER 설정됨",
+            "개발 전용 인증 우회 — 프로덕션에서 제거(SSO 우회 위험)")
+    else:
+        d.ok("인증 우회 폴백 없음 (STUDIO_DEV_USER 미설정)")
     n_admin = metrics.admin_count()
     if n_admin == 0:
         d.f("관리자 0명", "부트스트랩: manage.py set-admin <user> (2인 권장)")

@@ -96,7 +96,9 @@ assert r[0]["path"] == "danger.py"
 assert any(s["rule"] == "os-system" for s in r[0]["scan"]), r
 print("OK: /builds/<id>/files 응답에 파일별 scan 부착")
 
-# ---------- high 없으면 auto_approve 정상 진행 ----------
+# ---------- high 없으면 auto_approve → 실제로 push+dispatch까지 진행 ----------
+# (회귀: 예전엔 pushing에서 멈춰 있었음 — submit_push 미호출 버그)
+from studio import ghe   # noqa: E402
 bid2 = db.execute("INSERT INTO builds (studio_id, attempt, status) "
                   "VALUES ('ST1', 2, 'generating')")
 GEN2 = "```file:ok.py\ndef f():\n    return 1\n```\n"
@@ -104,9 +106,33 @@ with mock.patch.object(pipeline, "invoke_claude",
                        lambda *a, **k: {"output": {"message": {"content": [
                            {"text": "```paths\n```" if "select" in a[3].lower()
                             else GEN2}]}}, "usage": {}}), \
-     mock.patch.object(pipeline, "_fetch_originals", lambda *a, **k: ({}, {})):
+     mock.patch.object(pipeline, "_fetch_originals", lambda *a, **k: ({}, {})), \
+     mock.patch.object(ghe, "get_token", lambda uid: "tok"), \
+     mock.patch.object(ghe, "commit_and_push", lambda *a, **k: ("deadbeef01", {})), \
+     mock.patch.object(ghe, "_dispatch", lambda b, t: None), \
+     mock.patch.object(ghe, "_find_run_id", lambda b, t, tries=1: 55):
     pipeline.run_generation("hong", "S1", "ST1", bid2)
-assert db.one("SELECT status FROM builds WHERE build_id=?", (bid2,))["status"] == "pushing"
-print("OK: 위험 패턴 없으면 auto_approve 정상 진행(pushing)")
+row = db.one("SELECT status, run_id FROM builds WHERE build_id=?", (bid2,))
+assert row["status"] == "ci_running" and row["run_id"] == 55, dict(row)
+print("OK: 위험 패턴 없으면 auto_approve → push+dispatch까지 완주(ci_running)")
+
+# ---------- auto_approve + code_only → push까지만(pushed 보류, §6.8) ----------
+db.execute("UPDATE studios SET verify_mode='code_only' WHERE studio_id='ST1'")
+bid3 = db.execute("INSERT INTO builds (studio_id, attempt, status, hold_dispatch) "
+                  "VALUES ('ST1', 3, 'generating', 1)")
+disp = []
+with mock.patch.object(pipeline, "invoke_claude",
+                       lambda *a, **k: {"output": {"message": {"content": [
+                           {"text": "```paths\n```" if "select" in a[3].lower()
+                            else GEN2}]}}, "usage": {}}), \
+     mock.patch.object(pipeline, "_fetch_originals", lambda *a, **k: ({}, {})), \
+     mock.patch.object(ghe, "get_token", lambda uid: "tok"), \
+     mock.patch.object(ghe, "commit_and_push", lambda *a, **k: ("deadbeef02", {})), \
+     mock.patch.object(ghe, "_dispatch", lambda b, t: disp.append(b["build_id"])), \
+     mock.patch.object(ghe, "_find_run_id", lambda b, t, tries=1: 66):
+    pipeline.run_generation("hong", "S1", "ST1", bid3)
+assert db.one("SELECT status FROM builds WHERE build_id=?", (bid3,))["status"] == "pushed"
+assert disp == [], "code_only인데 stage로 dispatch됨"
+print("OK: auto_approve + code_only → push만(pushed), stage 미전달")
 
 print("\nALL SCAN TESTS PASSED")

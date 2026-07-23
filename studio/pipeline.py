@@ -124,8 +124,11 @@ def run_generation(user_id: str, session_id: str, studio_id: str,
         user = db.one("SELECT auto_approve FROM users WHERE user_id=?", (user_id,))
         if user and user["auto_approve"] and not has_high:
             jobs.set_build_status(build_id, "pushing")
-            logs.slog(studio_id, "[step3.5] auto_approve → pushing")
-            # push/dispatch는 ghe 모듈이 이어받음 (Phase 2 연결 지점)
+            logs.slog(studio_id, "[step3.5] auto_approve → push 진입")
+            # 사람 리뷰 생략 → 곧바로 push 잡 제출 (리뷰 승인 경로와 동일).
+            # verify_mode=code_only면 run_push가 pushed로 보류(§6.8).
+            from .ghe import submit_push
+            submit_push(build_id)
         else:
             jobs.set_build_status(build_id, "awaiting_review")
             logs.slog(studio_id, "[step3.5] awaiting_review (사람 검토 대기)")
