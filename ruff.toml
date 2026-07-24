@@ -1,0 +1,14 @@
+# ToolHub Studio 린트 설정 (Ruff). 실행: ruff check .
+line-length = 100
+target-version = "py311"
+
+[lint]
+# 표준 3종: pycodestyle(E/W) + pyflakes(F, 실수·죽은 코드).
+select = ["E", "W", "F"]
+# 의도적 컴팩트 스타일 허용 (argparse 세팅 등 한 줄 다중문).
+ignore = ["E701", "E702"]
+
+[lint.per-file-ignores]
+# 테스트/스크립트/데모는 sys.path 설정 후 임포트하는 패턴이라 E402 불가피.
+"tests/**" = ["E402"]
+"scripts/**" = ["E402"]

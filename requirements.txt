@@ -1,0 +1,8 @@
+# ToolHub Studio 런타임 의존성 (Python 3.11+)
+flask>=3.0          # 웹 앱
+gunicorn>=21.2      # WSGI (worker 1 × threads 16, §4.3)
+boto3>=1.34         # Bedrock converse + AWS SSO OIDC device flow (§3.2)
+cryptography>=42.0  # Fernet 자격증명 암호화 (§5)
+requests>=2.31      # GHE REST/OAuth (§3.3, §6)
+pypdf>=4.0          # 첨부 PDF 텍스트 추출 (§8)
+python-docx>=1.1    # 첨부 DOCX 텍스트 추출 (§8)

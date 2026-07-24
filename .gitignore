@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+studio/studio.db*
+studio/.fernet.key
+studio/attachments/
+studio/logs/
+studio/backups/
+
+# Claude Code 로컬 설정(개인 권한 등) — 공유 안 함
+.claude/settings.local.json

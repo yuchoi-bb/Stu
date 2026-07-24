@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ToolHub Studio</title>
+<style>
+  :root{
+    --bg:#12141a; --bg2:#181b23; --bg3:#1f232e; --line:#2a2f3d;
+    --fg:#d8dce6; --fg-dim:#8b93a7; --fg-faint:#5c6478;
+    --accent:#4f8cff; --accent-dim:#2c4a80;
+    --ok:#3fb96a; --warn:#e0a63c; --err:#e05c5c;
+    --card:#1b1f29; --mono:"SF Mono","D2Coding",Consolas,monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--fg);
+       font:14px/1.55 "Pretendard","Malgun Gothic",system-ui,sans-serif;
+       height:100vh;overflow:hidden}
+  .app{display:grid;grid-template-rows:52px 1fr;height:100vh}
+  .main{display:grid;grid-template-columns:232px 1fr 296px;min-height:0}
+  header{display:flex;align-items:center;gap:12px;padding:0 16px;
+         background:var(--bg2);border-bottom:1px solid var(--line)}
+  .logo{font-weight:700;font-size:15px}
+  .logo em{color:var(--accent);font-style:normal}
+  .spacer{flex:1}
+  .badge{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--fg-dim);
+         background:var(--bg3);border:1px solid var(--line);border-radius:14px;
+         padding:4px 11px;cursor:pointer}
+  .dot{width:7px;height:7px;border-radius:50%}
+  .dot.ok{background:var(--ok)} .dot.off{background:var(--err)}
+  .badge.off{border-color:var(--err);color:var(--err)}
+  .sidebar{background:var(--bg2);border-right:1px solid var(--line);
+           display:flex;flex-direction:column;min-height:0;overflow-y:auto}
+  .sb-head{padding:12px 14px 6px;font-size:12px;color:var(--fg-faint)}
+  .new-btn{margin:0 12px 10px;padding:8px;border:1px dashed var(--accent-dim);
+           border-radius:8px;background:none;color:var(--accent);font-size:13px;
+           cursor:pointer}
+  .sess{padding:10px 14px;border-left:3px solid transparent;cursor:pointer}
+  .sess:hover{background:var(--bg3)}
+  .sess.active{background:var(--bg3);border-left-color:var(--accent)}
+  .sess .t{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sess .m{font-size:11px;color:var(--fg-faint);margin-top:2px}
+  .chip{font-size:10px;padding:1px 7px;border-radius:9px;font-weight:600}
+  .chip.ci_running,.chip.pushing,.chip.generating{background:rgba(79,140,255,.15);color:var(--accent)}
+  .chip.pass,.chip.done{background:rgba(63,185,106,.15);color:var(--ok)}
+  .chip.fail,.chip.push_conflict{background:rgba(224,92,92,.15);color:var(--err)}
+  .chip.awaiting_review,.chip.pushed{background:rgba(224,166,60,.15);color:var(--warn)}
+  .chip.cancelled,.chip.abandoned,.chip.open{background:rgba(139,147,167,.15);color:var(--fg-dim)}
+  .chat{display:flex;flex-direction:column;min-height:0}
+  .msgs{flex:1;overflow-y:auto;padding:20px 26px;display:flex;
+        flex-direction:column;gap:14px}
+  .msgs>*{flex-shrink:0}  /* 스크롤 컨테이너에서 아이템 압축(카드 붕괴) 방지 */
+  .msg{max-width:80%}
+  .msg .who{font-size:11px;color:var(--fg-faint);margin-bottom:3px}
+  .msg .body{padding:10px 14px;border-radius:10px;font-size:13.5px;
+             white-space:pre-wrap;word-break:break-word}
+  .msg.user{align-self:flex-end}
+  .msg.user .body{background:var(--accent-dim);color:#e8eeff}
+  .msg.assistant .body{background:var(--bg3)}
+  .msg.system{align-self:center;max-width:92%}
+  .msg.system .body{background:var(--card);border:1px solid var(--line);
+                    font-family:var(--mono);font-size:12px;color:var(--fg-dim)}
+  .card{align-self:stretch;background:var(--card);border:1px solid var(--line);
+        border-radius:12px;overflow:hidden}
+  .card .head{display:flex;align-items:center;gap:8px;padding:10px 14px;
+              background:var(--bg3);border-bottom:1px solid var(--line);
+              font-size:12.5px;font-weight:600}
+  .card .step{font-size:10.5px;padding:2px 8px;border-radius:8px;
+              background:rgba(79,140,255,.15);color:var(--accent)}
+  .card .cbody{padding:14px}
+  .card .foot{display:flex;gap:8px;justify-content:flex-end;padding:10px 14px;
+              border-top:1px solid var(--line)}
+  .btn{padding:7px 15px;border-radius:7px;border:1px solid var(--line);
+       background:var(--bg3);color:var(--fg);font-size:12.5px;cursor:pointer}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.danger{color:var(--err);border-color:rgba(224,92,92,.4)}
+  textarea.req{width:100%;min-height:180px;background:#141720;color:var(--fg);
+               border:1px solid var(--line);border-radius:8px;padding:10px;
+               font:12.5px var(--mono);resize:vertical}
+  .ftabs{display:flex;gap:2px;border-bottom:1px solid var(--line);
+         background:var(--bg3);overflow-x:auto}
+  .ftab{padding:8px 13px;font-size:12px;font-family:var(--mono);cursor:pointer;
+        color:var(--fg-dim);border-bottom:2px solid transparent;white-space:nowrap}
+  .ftab.active{color:var(--fg);border-bottom-color:var(--accent)}
+  .warnbar{padding:8px 14px;font-size:12px;background:rgba(224,166,60,.1);
+           color:var(--warn);border-bottom:1px solid var(--line)}
+  .filebody{font-family:var(--mono);font-size:12px;white-space:pre;
+            overflow:auto;max-height:260px;padding:10px 14px;color:#c8cede}
+  .diffbody{font-family:var(--mono);font-size:12px;white-space:pre;
+            overflow:auto;max-height:300px;padding:4px 0}
+  .diffbody .dl{padding:0 14px}
+  .diffbody .add{background:rgba(80,200,120,.12);color:#8fe0a8}
+  .diffbody .del{background:rgba(208,80,80,.12);color:#e59a9a}
+  .diffbody .ctx{color:#8a92a2}
+  .fbar{display:flex;gap:8px;align-items:center;padding:5px 14px;font-size:11px;
+        color:#8a92a2;border-bottom:1px solid var(--line)}
+  .fbar .tog{margin-left:auto;cursor:pointer;color:var(--accent)}
+  .fbar .np{color:#8fe0a8}  .fbar .nm{color:#e59a9a}
+  .scanbox{border-bottom:1px solid var(--line);max-height:150px;overflow:auto}
+  .scan{padding:5px 14px;font-size:11.5px;border-left:3px solid var(--line)}
+  .scan.high{border-left-color:#d05050;background:rgba(208,80,80,.08)}
+  .scan.medium{border-left-color:var(--warn);background:rgba(224,166,60,.06)}
+  .scan code{display:block;font-family:var(--mono);color:#9aa3b2;margin-top:2px}
+  .inputbar{border-top:1px solid var(--line);padding:12px 20px;background:var(--bg2)}
+  .lock-note{font-size:11.5px;color:var(--warn);margin-bottom:6px}
+  .attachrow{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
+  .attachchip{font-size:11px;background:var(--bg3);border:1px solid var(--line);
+        border-radius:12px;padding:2px 9px;color:#c8cede;font-family:var(--mono)}
+  .spin{display:inline-block;width:12px;height:12px;border:2px solid var(--line);
+        border-top-color:var(--accent);border-radius:50%;
+        animation:spin .8s linear infinite;vertical-align:middle;margin-right:6px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .runbar{padding:8px 14px;font-size:12px;color:#c8cede;
+        background:rgba(90,140,220,.08);border-bottom:1px solid var(--line)}
+  .pwarn{font-size:11.5px;padding:7px 10px;margin:8px 0;border-radius:6px;
+        background:rgba(224,166,60,.1);color:var(--warn);
+        border:1px solid rgba(224,166,60,.3)}
+  .pwarn.hi{background:rgba(208,80,80,.1);color:#e59a9a;
+        border-color:rgba(208,80,80,.3)}
+  .inputbox{display:flex;gap:10px;align-items:flex-end}
+  .inputbox textarea{flex:1;resize:none;height:46px;background:var(--bg3);
+        color:var(--fg);border:1px solid var(--line);border-radius:10px;
+        padding:11px 14px;font:13.5px inherit}
+  .panel{background:var(--bg2);border-left:1px solid var(--line);padding:16px;
+         overflow-y:auto;display:flex;flex-direction:column;gap:14px}
+  .p-title{font-size:11px;color:var(--fg-faint)}
+  .p-id{font-family:var(--mono);font-size:15px;font-weight:700}
+  .p-sec{background:var(--bg3);border:1px solid var(--line);border-radius:10px;
+         padding:12px}
+  .p-sec h5{font-size:11.5px;color:var(--fg-dim);margin-bottom:8px}
+  .att{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12.5px;
+       border-bottom:1px solid var(--line)}
+  .att:last-child{border-bottom:none}
+  .att .n{font-family:var(--mono);color:var(--fg-dim);width:26px}
+  .att .bid{font-family:var(--mono);font-size:11px;color:var(--accent);
+            margin-left:auto}
+  .p-actions{display:flex;flex-direction:column;gap:8px}
+  .hint{font-size:11.5px;color:var(--fg-faint)}
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;
+           align-items:center;justify-content:center;z-index:10}
+  .overlay.show{display:flex}
+  .modal{width:440px;background:var(--bg2);border:1px solid var(--line);
+         border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:12px}
+  .modal h3{font-size:14px}
+  .field label{display:block;font-size:11.5px;color:var(--fg-dim);margin-bottom:4px}
+  .field input{width:100%;background:var(--bg3);border:1px solid var(--line);
+        color:var(--fg);border-radius:7px;padding:8px 11px;font-size:13px}
+  .row{display:flex;gap:8px;align-items:center}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="logo">ToolHub <em>Studio</em></div>
+    <div class="spacer"></div>
+    <div class="badge" id="awsBadge" onclick="connectAws()">
+      <span class="dot off"></span>AWS</div>
+    <div class="badge" id="gheBadge" onclick="openSettings()">
+      <span class="dot off"></span>GHE</div>
+    <div class="badge" id="adminBadge" onclick="openAdmin()" style="display:none">📊 관리자</div>
+    <div class="badge" onclick="openSettings()">⚙ 설정</div>
+  </header>
+  <div class="main">
+    <aside class="sidebar">
+      <div class="sb-head">세션</div>
+      <button class="new-btn" onclick="newSession()">＋ 새 작업</button>
+      <div id="sessions"></div>
+    </aside>
+    <section class="chat">
+      <div class="msgs" id="msgs"></div>
+      <div class="inputbar">
+        <div class="lock-note" id="lockNote" style="display:none"></div>
+        <div class="attachrow" id="attachRow"></div>
+        <div class="inputbox">
+          <input type="file" id="fileInput" style="display:none"
+                 accept=".pdf,.docx,.txt,.md" onchange="uploadFile(this)">
+          <button class="btn" id="attachBtn" title="문서 첨부 (PDF/DOCX/TXT/MD)"
+                  onclick="$('fileInput').click()">📎</button>
+          <textarea id="input" placeholder="요구조건 또는 지시 입력..."
+                    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}"></textarea>
+          <button class="btn primary" onclick="send()">전송</button>
+        </div>
+      </div>
+    </section>
+    <aside class="panel" id="panel"></aside>
+  </div>
+</div>
+
+<div class="overlay" id="admin">
+  <div class="modal" style="width:560px;max-height:80vh;overflow-y:auto">
+    <h3>관리자 대시보드</h3>
+    <div id="adminBody"></div>
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn" onclick="closeAdmin()">닫기</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="settings">
+  <div class="modal">
+    <h3>설정</h3>
+    <div class="field"><label>GHE 연결</label>
+      <div class="row">
+        <button class="btn primary" onclick="gheOauth()">GitHub 연결 (OAuth)</button>
+        <button class="btn" onclick="ghePat()">PAT 등록 (폴백)</button>
+      </div>
+      <div class="hint" id="gheInfo"></div>
+    </div>
+    <div class="field"><label>작업 브랜치 (repo / branch)</label>
+      <div class="row">
+        <input id="repoIn" placeholder="thr" style="width:120px">
+        <input id="branchIn" placeholder="feature/foo">
+        <button class="btn" onclick="saveBranch()">저장</button>
+      </div>
+      <div class="hint">main/보호 브랜치·타 사용자 지정 브랜치는 거부됩니다</div>
+    </div>
+    <div class="field"><label>Step 3.5 승인 모드</label>
+      <div class="row">
+        <label><input type="radio" name="ap" value="0"> 매번 확인 (기본)</label>
+        <label><input type="radio" name="ap" value="1"> 자동 승인</label>
+      </div>
+      <div class="hint" style="color:var(--warn)">⚠ 자동 승인 시 생성 코드가 사람 검토 없이 runner에서 실행됩니다</div>
+    </div>
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn" onclick="closeSettings()">닫기</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let state = {sessions: [], sid: null, detail: null, msgs: [], conn: {},
+             reviewFiles: null, reviewBuild: null, activeTab: 0, showFull: false};
+let lastSig = null;   // 데이터 변경 시에만 재렌더 (클릭 경합/편집 초기화 방지)
+
+async function api(path, opts) {
+  const r = await fetch("/api/studio" + path, Object.assign({
+    headers: {"Content-Type": "application/json"}}, opts));
+  if (!r.ok) {
+    const raw = await r.text();
+    let msg = raw.slice(0, 300);
+    try { msg = JSON.parse(raw).error || msg; } catch (_) { /* HTML 폴백 */ }
+    throw new Error(msg || `오류 (${r.status})`);
+  }
+  return r.headers.get("content-type")?.includes("json") ? r.json() : r.text();
+}
+const post = (p, body) => api(p, {method: "POST", body: JSON.stringify(body || {})});
+
+// ---------- 폴링 루프 ----------
+let refreshing = false;   // 겹침 방지 — 겹치면 상태가 왕복하며 매 주기 재렌더됨
+async function refresh() {
+  if (refreshing) return;
+  refreshing = true;
+  try {
+    state.conn = await api("/connections");
+    state.sessions = await api("/sessions");
+    if (!state.sid && state.sessions.length) state.sid = state.sessions[0].session_id;
+    if (state.sid) {
+      state.detail = await api("/sessions/" + state.sid);
+      state.msgs = await api("/sessions/" + state.sid + "/messages");
+      const rb = latestBuild();
+      if (rb && rb.status === "awaiting_review") {
+        if (state.reviewBuild !== rb.build_id) {
+          state.reviewFiles = await api("/builds/" + rb.build_id + "/files");
+          state.reviewBuild = rb.build_id; state.activeTab = 0; state.showFull = false;
+        }
+      } else { state.reviewFiles = null; state.reviewBuild = null; }
+    }
+    const sig = JSON.stringify([state.conn, state.sessions, state.detail,
+                                state.msgs, state.reviewBuild, state.activeTab,
+                                state.sid]);
+    if (sig !== lastSig) { lastSig = sig; render(); }
+  } catch (e) { console.error(e); }
+  finally { refreshing = false; }
+}
+setInterval(refresh, 3000); refresh();
+
+function latestBuild() {
+  const b = state.detail?.builds || [];
+  return b.length ? b[b.length - 1] : null;
+}
+const runLabel = s => ({generating: "코드 생성 중…", pushing: "커밋·push 중…",
+  pushed: "push 완료 — stage 전달 대기", ci_running: "stage 빌드·검증 중…"}[s] || s);
+
+// ---------- 렌더 ----------
+function render() {
+  renderBadges(); renderSessions(); renderChat(); renderPanel(); renderAttachments();
+}
+function renderAttachments() {
+  const row = $("attachRow");
+  const atts = state.detail?.attachments || [];
+  row.innerHTML = atts.map(a =>
+    `<span class="attachchip">📄 ${esc(a.filename)}</span>`).join("");
+  $("attachBtn").disabled = !state.sid;
+}
+function renderBadges() {
+  $("adminBadge").style.display = state.conn.is_admin ? "" : "none";
+  $("awsBadge").innerHTML = `<span class="dot ${state.conn.aws_connected ? "ok" : "off"}"></span>AWS${state.conn.aws_connected ? "" : " 연결"}`;
+  $("awsBadge").className = "badge" + (state.conn.aws_connected ? "" : " off");
+  const g = state.conn.ghe_connected;
+  $("gheBadge").innerHTML = `<span class="dot ${g ? "ok" : "off"}"></span>GHE${g ? " · " + (state.conn.ghe_login || "") : " 연결"}`;
+  $("gheBadge").className = "badge" + (g ? "" : " off");
+}
+function renderSessions() {
+  $("sessions").innerHTML = state.sessions.map(s => `
+    <div class="sess ${s.session_id === state.sid ? "active" : ""}"
+         onclick="selectSession('${s.session_id}')">
+      <div class="t">${esc(s.title || s.session_id)}</div>
+      <div class="m">${s.latest_studio_status
+        ? `<span class="chip ${s.latest_studio_status}">${s.latest_studio_status}</span> ` : ""}
+        ${esc(s.session_id)}</div>
+    </div>`).join("");
+}
+function renderChat() {
+  const box = $("msgs");
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+  const reqEditing = $("reqEdit") ? $("reqEdit").value : null;  // 편집 보존
+  let html = state.msgs.map(m => `
+    <div class="msg ${m.role}">
+      <div class="who">${m.role === "user" ? "나" : m.role === "assistant" ? "Claude" : "시스템"}</div>
+      <div class="body">${esc(m.content)}</div>
+    </div>`).join("");
+
+  const d = state.detail?.draft;
+  if (d) html += draftCard(d);
+  if (state.reviewFiles) html += reviewCard();
+  const lb = latestBuild();
+  if (lb && lb.status === "pushed") html += stageGateCard(lb);   // §6.8
+  box.innerHTML = html;
+  if (reqEditing !== null && $("reqEdit")) $("reqEdit").value = reqEditing;
+  if (nearBottom) box.scrollTop = box.scrollHeight;
+
+  const lock = $("lockNote");
+  if (d && d.status === "ready") {
+    lock.style.display = ""; lock.textContent = "⚠ Step 2 승인 카드를 처리하면 코드 생성이 시작됩니다";
+  } else if (state.reviewFiles) {
+    lock.style.display = ""; lock.textContent = "⚠ Step 3.5 리뷰 카드를 처리해야 진행됩니다";
+  } else lock.style.display = "none";
+}
+function draftCard(d) {
+  if (d.status === "generating")
+    return `<div class="card"><div class="head"><span class="step">STEP 2</span>
+            <span class="spin"></span>requirements 초안 생성 중...</div></div>`;
+  if (d.status === "failed")
+    return `<div class="card"><div class="head"><span class="step">STEP 2</span>
+      <span style="color:#e59a9a">초안 생성 실패</span></div>
+      <div class="warnbar" style="background:#5a1f1f">${esc(d.content || "생성 실패")}</div>
+      <div class="foot"><span class="hint">다시 요구조건을 입력해 재시도하세요.</span></div></div>`;
+  return `<div class="card"><div class="head"><span class="step">STEP 2</span>
+    requirements 확정 게이트 — 검토 후 승인</div>
+    <div class="cbody"><textarea class="req" id="reqEdit">${esc(d.content || "")}</textarea></div>
+    <div class="m" style="padding:6px 0 0">검증 방식 (§6.8 — 지금 정하고, 회차마다 바꿀 수도 있음):
+      <label style="margin-left:8px"><input type="radio" name="vmode" value="ci" checked>
+        stage CI/CD 검증까지</label>
+      <label style="margin-left:12px"><input type="radio" name="vmode" value="code_only">
+        코드만 준비 (push 후 stage 보류)</label></div>
+    <div class="foot">
+      <button class="btn primary" onclick="approveDraft(${d.draft_id})">승인하고 진행</button>
+    </div></div>`;
+}
+function reviewCard() {
+  const files = state.reviewFiles;
+  const warn = files.some(f => f.shrink_warn);
+  const scanOf = f => (f.scan || []);
+  const hiFile = f => scanOf(f).some(s => s.severity === "high");
+  const anyHigh = files.some(hiFile);
+  const anyScan = files.some(f => scanOf(f).length);
+  const mark = f => (hiFile(f) ? " ⛔" : scanOf(f).length ? " ⚠" : "")
+                  + (f.shrink_warn ? " ↓" : "");
+  const tabs = files.map((f, i) => `<div class="ftab ${i === state.activeTab ? "active" : ""}"
+      onclick="state.activeTab=${i};lastSig=null;render()">${esc(f.path)}${mark(f)}</div>`).join("");
+  const cur = files[state.activeTab] || files[0];
+  const curScan = scanOf(cur);
+  const scanList = curScan.length ? `<div class="scanbox">${curScan.map(s =>
+      `<div class="scan ${s.severity}"><b>${s.severity === "high" ? "⛔" : "⚠"} ${esc(s.rule)}</b>
+        <span>:${s.line}</span> ${esc(s.message)}
+        <code>${esc(s.snippet)}</code></div>`).join("")}</div>` : "";
+  return `<div class="card"><div class="head"><span class="step">STEP 3.5</span>
+    코드 리뷰 게이트 — stage 전달 전
+    <span style="margin-left:auto;color:var(--warn);font-size:11.5px">승인 대기</span></div>
+    <div class="ftabs">${tabs}</div>
+    ${anyHigh ? `<div class="warnbar" style="background:#5a1f1f">⛔ 정적 검사: 위험 패턴(high) 발견 — push 전 반드시 확인하세요 (자동 승인 보류됨)</div>`
+      : anyScan ? `<div class="warnbar">⚠ 정적 검사: 확인 권장 항목이 있습니다 (파일 탭 참고)</div>` : ""}
+    ${warn ? `<div class="warnbar">⚠ 회귀 경고: 라인 수가 직전 회차 대비 급감한 파일이 있습니다 — 내용 누락 확인</div>` : ""}
+    ${scanList}
+    ${fileView(cur)}
+    ${(state.detail?.studio?.verify_mode === "code_only")
+      ? `<div class="foot">
+      <button class="btn danger" onclick="reviewBuild('reject')">거부 (사유)</button>
+      <button class="btn" onclick="reviewBuild('approve', true)"
+        title="이 회차만 studio 기본(코드만 준비)을 무시하고 바로 검증">승인 → push + 검증 (이번만)</button>
+      <button class="btn primary" onclick="reviewBuild('approve')">승인 → push만 (stage 보류)</button>
+    </div>`
+      : `<div class="foot">
+      <button class="btn danger" onclick="reviewBuild('reject')">거부 (사유)</button>
+      <button class="btn" onclick="reviewBuild('approve', false)"
+        title="브랜치에 push만 하고 stage 검증은 별도 결정으로 보류">승인 → push만 (stage 보류)</button>
+      <button class="btn primary" onclick="reviewBuild('approve')">승인 → push + 검증</button>
+    </div>`}</div>`;
+}
+// §6.8 stage 전달 게이트: push만 된 회차 — stage로 보낼지 사용자가 결정
+function stageGateCard(b) {
+  return `<div class="card"><div class="head"><span class="step">STAGE</span>
+    stage 전달 결정 — push 완료 (회차 #${b.attempt})
+    <span style="margin-left:auto;color:var(--warn);font-size:11.5px">전달 대기</span></div>
+    <div class="m" style="padding:4px 0">코드는 작업 브랜치에 커밋됐습니다.
+      stage 검증(CI)으로 보낼지 결정하세요. 보내지 않으면 이 회차는 검증 없이 대기합니다.</div>
+    <div class="foot">
+      <button class="btn danger" onclick="cancelBuild(${b.build_id})">회차 취소</button>
+      <button class="btn primary" onclick="dispatchBuild(${b.build_id})">stage 검증 시작</button>
+    </div></div>`;
+}
+// 파일 뷰: 수정 파일이면 원문 대비 diff(기본), 신규 파일이면 전문.
+function fileView(f) {
+  if (!f) return `<div class="filebody"></div>`;
+  const isMod = f.base_content != null;
+  if (!isMod)
+    return `<div class="fbar"><span class="np">＋ 새 파일</span></div>`
+         + `<div class="filebody">${esc(f.content)}</div>`;
+  if (state.showFull)
+    return `<div class="fbar">수정 파일 · 전문 보기<span class="tog" onclick="state.showFull=false;lastSig=null;render()">↔ diff 보기</span></div>`
+         + `<div class="filebody">${esc(f.content)}</div>`;
+  const d = lineDiff(f.base_content, f.content);
+  if (!d)   // 너무 커서 diff 생략
+    return `<div class="fbar">수정 파일(diff 생략 — 큰 파일)<span class="tog" onclick="state.showFull=true;lastSig=null;render()">전문 보기</span></div>`
+         + `<div class="filebody">${esc(f.content)}</div>`;
+  let add = 0, del = 0;
+  for (const x of d) { if (x.t === "+") add++; else if (x.t === "-") del++; }
+  const rows = d.map(x => {
+    const cls = x.t === "+" ? "add" : x.t === "-" ? "del" : "ctx";
+    const sign = x.t === " " ? " " : x.t;
+    return `<div class="dl ${cls}">${sign} ${esc(x.l)}</div>`;
+  }).join("");
+  return `<div class="fbar">원문 대비 diff <span class="np">+${add}</span> / <span class="nm">-${del}</span>`
+       + `<span class="tog" onclick="state.showFull=true;lastSig=null;render()">전문 보기</span></div>`
+       + `<div class="diffbody">${rows}</div>`;
+}
+// LCS 기반 라인 diff. 너무 크면(2000x2000 초과) null 반환 → 호출부가 전문 표시.
+function lineDiff(oldText, newText) {
+  const a = (oldText || "").split("\n"), b = (newText || "").split("\n");
+  const n = a.length, m = b.length;
+  if (n * m > 4000000) return null;
+  const dp = Array.from({length: n + 1}, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1
+                               : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const out = []; let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { out.push({t: " ", l: a[i]}); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({t: "-", l: a[i]}); i++; }
+    else { out.push({t: "+", l: b[j]}); j++; }
+  }
+  while (i < n) out.push({t: "-", l: a[i++]});
+  while (j < m) out.push({t: "+", l: b[j++]});
+  return out;
+}
+function readinessBanner() {
+  const c = state.conn || {};
+  const miss = [];
+  if (!c.aws_connected) miss.push("AWS 연결");
+  if (!c.ghe_connected) miss.push("GHE 연결");
+  if (!c.branch || !c.branch.branch_name) miss.push("작업 브랜치 설정");
+  return miss.length
+    ? `<div class="pwarn hi">⚙ 시작 전 필요: ${miss.join(" · ")} — 우측 상단 배지·⚙설정에서</div>`
+    : "";
+}
+function warnBanner() {
+  const d = state.detail || {};
+  let h = readinessBanner();
+  if (d.analysis_warn) h += `<div class="pwarn">🧭 ${esc(d.analysis_warn)}</div>`;
+  if (d.attempt_warn)
+    h += `<div class="pwarn hi">🔁 회차가 많이 반복됐습니다 — 코드가 아니라 요구조건 문제일 수 있어요. Step 2 재확정을 검토하세요.</div>`;
+  return h;
+}
+function renderPanel() {
+  const st = state.detail?.studio;
+  if (!st) {
+    $("panel").innerHTML = `<div class="p-title">STUDIO</div>${warnBanner()}
+      <div class="hint">진행 중인 studio 없음.<br>요구조건을 입력하면 Step 2(확정 게이트)부터 시작합니다.</div>`;
+    return;
+  }
+  const builds = state.detail.builds.map(b => `
+    <div class="att"><span class="n">#${b.attempt}</span>
+      <span class="chip ${b.status}">${b.status}</span>
+      <span class="bid">${b.buildid || ""}</span></div>`).join("");
+  const last = latestBuild();
+  $("panel").innerHTML = `
+    <div><div class="p-title">STUDIO</div><div class="p-id">${esc(st.studio_id)}</div>
+      <div class="hint">${esc(st.repo || "")} / ${esc(st.branch_name || "브랜치 미설정")}
+        · ${st.verify_mode === "code_only"
+            ? '<span class="chip pushed">코드만 준비</span>'
+            : '<span class="chip pass">CI 검증</span>'}</div></div>
+    ${warnBanner()}
+    ${last && ["generating", "pushing", "ci_running"].includes(last.status)
+      ? `<div class="runbar"><span class="spin"></span>${runLabel(last.status)} (회차 #${last.attempt})</div>` : ""}
+    <div class="p-sec"><h5>회차 이력 (1 studio : N build)</h5>${builds || '<div class="hint">아직 없음</div>'}</div>
+    ${st.pr_url
+      ? `<div class="p-sec"><h5>PR</h5><a class="btn" href="${esc(st.pr_url)}" target="_blank">PR #${st.pr_number} 열기 ↗</a>
+         <div class="hint">main 반영은 사람 리뷰 후 수동 merge (자동 merge 안 함)</div></div>`
+      : state.detail.can_pr
+        ? `<div class="p-sec"><h5>PR</h5><button class="btn" onclick="createPr()">CI 통과 — 본인 명의로 PR 생성</button>
+           <div class="hint">§6.6: 검증 통과분을 main 대상 PR로. merge는 리뷰 후 수동</div></div>`
+        : ""}
+    <div class="p-actions">
+      ${last && ["generating", "pushing", "ci_running"].includes(last.status)
+        ? `<button class="btn danger" onclick="cancelBuild(${last.build_id})">요청 취소 (stage 중단 시그널)</button>` : ""}
+      <button class="btn" onclick="closeStudio('done')">완료 처리 (채택)</button>
+      <button class="btn" onclick="closeStudio('abandoned')">폐기 — Step 2 재확정으로</button>
+      <div class="hint">재확정 시 새 studio_id가 발급되고 현재 studio는 abandoned로 종결됩니다</div>
+    </div>`;
+}
+const esc = s => (s || "").replace(/[&<>"']/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+// ---------- 동작 ----------
+async function selectSession(id) { state.sid = id; state.reviewBuild = null; await refresh(); }
+async function newSession() {
+  const title = prompt("작업 제목", "새 작업"); if (title === null) return;
+  let tool = null;
+  try {
+    const tools = await api("/tools");
+    if (tools.length) {
+      const names = tools.map(t => t.tool_name).join(", ");
+      const pick = prompt(`대상 tool (분석 md 로드용, 없으면 빈칸)\n등록: ${names}`, "");
+      tool = (pick && pick.trim()) || null;
+    }
+  } catch (e) { /* tools 조회 실패는 무시 — tool 미지정으로 진행 */ }
+  const r = await post("/sessions", {title, tool_target: tool});
+  state.sid = r.session_id; await refresh();
+}
+async function uploadFile(input) {
+  const f = input.files[0]; if (!f || !state.sid) return;
+  const fd = new FormData(); fd.append("file", f);
+  $("attachBtn").disabled = true;
+  try {
+    // JSON 헬퍼(api)는 Content-Type을 강제하므로 멀티파트는 직접 fetch (same-origin)
+    const r = await fetch(`/api/studio/sessions/${state.sid}/attachments`,
+                          {method: "POST", body: fd});
+    if (!r.ok) throw new Error((await r.text()).slice(0, 200));
+  } catch (e) { alert("첨부 실패: " + e.message); }
+  input.value = ""; lastSig = null; await refresh();
+}
+async function send() {
+  const text = $("input").value.trim(); if (!text || !state.sid) return;
+  $("input").value = "";
+  try {
+    if (state.detail?.studio) {
+      await post("/message", {session_id: state.sid, content: text,
+                              studio_id: state.detail.studio.studio_id});
+    } else {
+      await post("/requirements/draft", {session_id: state.sid, content: text});
+    }
+  } catch (e) { alert(e.message); }
+  await refresh();
+}
+async function approveDraft(draftId) {
+  const content = $("reqEdit") ? $("reqEdit").value : null;
+  const vm = document.querySelector('input[name="vmode"]:checked');
+  try { await post(`/requirements/${draftId}/approve`,
+                   {content, verify_mode: vm ? vm.value : "ci"}); }
+  catch (e) { alert(e.message); }
+  await refresh();
+}
+async function reviewBuild(action, dispatch) {
+  let reason = null;
+  if (action === "reject") { reason = prompt("거부 사유 (다음 회차에 전달됩니다)"); if (reason === null) return; }
+  const body = {action, reason};
+  if (dispatch !== undefined) body.dispatch = dispatch;   // §6.8 명시 시 studio 기본 무시
+  try { await post(`/builds/${state.reviewBuild}/review`, body); }
+  catch (e) { alert(e.message); }
+  state.reviewBuild = null; await refresh();
+}
+async function dispatchBuild(id) {   // §6.8: 보류 회차를 stage로 전달
+  try { await post(`/builds/${id}/dispatch`); } catch (e) { alert(e.message); }
+  await refresh();
+}
+async function cancelBuild(id) { await post(`/builds/${id}/cancel`); await refresh(); }
+async function createPr() {
+  if (!confirm("검증 통과분을 main 대상 PR로 생성합니다. (merge는 리뷰 후 수동)")) return;
+  try {
+    const r = await post(`/studios/${state.detail.studio.studio_id}/create-pr`, {});
+    if (r.pr_url) window.open(r.pr_url, "_blank");
+  } catch (e) { alert(e.message); }
+  await refresh();
+}
+async function closeStudio(status) {
+  if (!confirm(status === "done" ? "채택 완료로 종결할까요?" : "폐기하고 재확정으로 돌아갈까요?")) return;
+  await post(`/studios/${state.detail.studio.studio_id}/close`, {status});
+  await refresh();
+}
+async function connectAws() {
+  if (state.conn.aws_connected) return;
+  const r = await post("/aws/connect");
+  window.open(r.verification_uri, "_blank");
+  alert(`브라우저에서 승인하세요.\n코드: ${r.user_code}\n승인 후 자동 연결됩니다.`);
+  const poll = setInterval(async () => {
+    const s = await api("/aws/status");
+    if (s.status === "connected" || s.status === "expired") { clearInterval(poll); refresh(); }
+  }, 4000);
+}
+async function gheOauth() {
+  const r = await post("/ghe/oauth/start");
+  window.open(r.authorize_url, "_blank");
+}
+async function ghePat() {
+  const token = prompt("GHE Personal Access Token (repo 권한)"); if (!token) return;
+  try { const r = await post("/ghe/pat", {token}); alert("연결됨: " + r.ghe_login); }
+  catch (e) { alert(e.message); }
+  refresh();
+}
+async function saveBranch() {
+  try {
+    await post("/branch", {repo: $("repoIn").value || undefined,
+                           branch_name: $("branchIn").value});
+    alert("저장됨");
+  } catch (e) { alert(e.message); }
+  refresh();
+}
+function openSettings() {
+  const b = state.conn.branch;
+  if (b) { $("repoIn").value = b.repo; $("branchIn").value = b.branch_name; }
+  $("gheInfo").textContent = state.conn.ghe_connected
+    ? `연결됨 (${state.conn.ghe_auth_type}) · ${state.conn.ghe_login || ""}` : "미연결";
+  document.querySelectorAll('input[name=ap]').forEach(r => {
+    r.checked = (r.value === "1") === !!state.conn.auto_approve;
+    r.onchange = () => post("/settings/approval-mode",
+                            {auto_approve: r.value === "1"}).then(refresh);
+  });
+  $("settings").classList.add("show");
+}
+function closeSettings() { $("settings").classList.remove("show"); }
+
+async function openAdmin() {
+  const m = await api("/admin/metrics");
+  const br = await api("/admin/branches");
+  const ad = await api("/admin/admins");
+  const o = m.overall;
+  const pct = v => v == null ? "—" : (v * 100).toFixed(0) + "%";
+  const adminRows = ad.admins.map(u => `<div class="att">
+      <span>${esc(u.user_id)}</span>
+      <span class="bid">${esc(u.ghe_login || "")}
+        <button class="btn" style="padding:2px 6px"
+          onclick="setAdmin('${esc(u.user_id)}', false)">강등</button></span></div>`).join("");
+  $("adminBody").innerHTML = `
+    <div class="p-sec"><h5>관리자 (2인 체계 권장)</h5>
+      ${ad.low ? '<div class="hint" style="color:#e0a030">⚠ 관리자가 '
+        + ad.count + '명입니다 — 인수인계·부재 대비 2인 권장</div>' : ''}
+      ${adminRows || '<div class="hint">없음</div>'}
+      <div class="att"><input id="admGrant" placeholder="user_id (로그인 이력 필요)"
+        style="flex:1;background:var(--bg);border:1px solid var(--line);color:inherit;padding:4px 6px;border-radius:4px">
+        <button class="btn" onclick="grantAdmin()">관리자 지정</button></div>
+      <div class="hint">권한: 미터링·브랜치·audit 조회 + 분석 md 매핑 + 관리자 지정.
+        타 사용자 브랜치·작업은 변경하지 않음(소유권 존중)</div>
+    </div>`  + `
+    <div class="p-sec"><h5>§10.1 성공 지표</h5>
+      <div class="hint">studio 총 ${o.studios_total}건 ·
+        CI pass 도달률 <b>${pct(o.ci_pass_rate)}</b> ·
+        채택률 <b>${pct(o.adoption_rate)}</b> ·
+        studio당 평균 회차 <b>${(o.avg_attempts_per_studio || 0).toFixed(1)}</b></div>
+      <div class="hint">토큰 in ${o.input_tokens} / out ${o.output_tokens} /
+        cache ${o.cache_read_tokens}</div>
+    </div>
+    <div class="p-sec"><h5>사용자별 미터링</h5>
+      ${m.users.map(u => `<div class="att"><span>${esc(u.user_id)}</span>
+        <span class="bid">in ${u.input_tokens||0} / out ${u.output_tokens||0} /
+        채택 ${u.adopted||0}</span></div>`).join("")}</div>
+    <div class="p-sec"><h5>요청 이력 브랜치 (자동 삭제 없음)</h5>
+      ${br.map(b => `<div class="att"><span>${esc(b.repo)}/${esc(b.branch_name)}</span>
+        <span class="bid">${esc(b.user_id)} ·
+        <span class="chip ${b.last_build_status||''}">${b.last_build_status||'—'}</span></span></div>`).join("")
+        || '<div class="hint">없음</div>'}</div>`;
+  $("admin").classList.add("show");
+}
+async function setAdmin(userId, isAdmin) {
+  if (!isAdmin && !confirm(`${userId} 관리자 권한을 해제할까요?`)) return;
+  try { await post("/admin/admins", {user_id: userId, is_admin: isAdmin}); }
+  catch (e) { alert(e.message); return; }
+  await openAdmin();
+}
+async function grantAdmin() {
+  const uid = $("admGrant").value.trim(); if (!uid) return;
+  await setAdmin(uid, true);
+}
+function closeAdmin() { $("admin").classList.remove("show"); }
+</script>
+</body>
+</html>

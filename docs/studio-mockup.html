@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ToolHub Studio — UI 목업</title>
+<style>
+  :root{
+    --bg:#12141a; --bg2:#181b23; --bg3:#1f232e; --line:#2a2f3d;
+    --fg:#d8dce6; --fg-dim:#8b93a7; --fg-faint:#5c6478;
+    --accent:#4f8cff; --accent-dim:#2c4a80;
+    --ok:#3fb96a; --warn:#e0a63c; --err:#e05c5c; --run:#4f8cff;
+    --card:#1b1f29; --mono:"SF Mono","D2Coding",Consolas,monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--fg);
+       font:14px/1.55 "Pretendard","Malgun Gothic",system-ui,sans-serif;height:100vh;overflow:hidden}
+  /* ---------- 전체 그리드 ---------- */
+  .app{display:grid;grid-template-rows:52px 1fr;height:100vh}
+  .main{display:grid;grid-template-columns:232px 1fr 296px;min-height:0}
+  /* ---------- 헤더 ---------- */
+  header{display:flex;align-items:center;gap:14px;padding:0 16px;
+         background:var(--bg2);border-bottom:1px solid var(--line)}
+  .logo{font-weight:700;font-size:15px;letter-spacing:.3px}
+  .logo em{color:var(--accent);font-style:normal}
+  .tool-sel{background:var(--bg3);border:1px solid var(--line);color:var(--fg);
+            border-radius:6px;padding:5px 10px;font-size:13px}
+  .branch{font-family:var(--mono);font-size:12px;color:var(--fg-dim);
+          background:var(--bg3);border:1px solid var(--line);border-radius:6px;padding:5px 10px}
+  .spacer{flex:1}
+  .badge{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--fg-dim);
+         background:var(--bg3);border:1px solid var(--line);border-radius:14px;padding:4px 11px}
+  .dot{width:7px;height:7px;border-radius:50%}
+  .dot.ok{background:var(--ok)} .dot.off{background:var(--err)}
+  .badge.reconnect{border-color:var(--err);color:var(--err);cursor:pointer}
+  .gear{cursor:pointer;font-size:16px;color:var(--fg-dim);padding:4px}
+  .gear:hover{color:var(--fg)}
+  /* ---------- 좌: 세션 목록 ---------- */
+  .sidebar{background:var(--bg2);border-right:1px solid var(--line);
+           display:flex;flex-direction:column;min-height:0}
+  .sb-head{padding:12px 14px;font-size:12px;color:var(--fg-faint);letter-spacing:.5px}
+  .new-btn{margin:0 12px 10px;padding:8px;border:1px dashed var(--accent-dim);
+           border-radius:8px;background:none;color:var(--accent);font-size:13px;cursor:pointer}
+  .new-btn:hover{background:rgba(79,140,255,.08)}
+  .sess{padding:10px 14px;border-left:3px solid transparent;cursor:pointer}
+  .sess:hover{background:var(--bg3)}
+  .sess.active{background:var(--bg3);border-left-color:var(--accent)}
+  .sess .t{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sess .m{display:flex;gap:6px;margin-top:3px;font-size:11px;color:var(--fg-faint)}
+  .chip{font-size:10px;padding:1px 7px;border-radius:9px;font-weight:600}
+  .chip.run{background:rgba(79,140,255,.15);color:var(--run)}
+  .chip.pass{background:rgba(63,185,106,.15);color:var(--ok)}
+  .chip.fail{background:rgba(224,92,92,.15);color:var(--err)}
+  .chip.review{background:rgba(224,166,60,.15);color:var(--warn)}
+  .chip.done{background:rgba(139,147,167,.15);color:var(--fg-dim)}
+  /* ---------- 중앙: 채팅 ---------- */
+  .chat{display:flex;flex-direction:column;min-height:0}
+  .msgs{flex:1;overflow-y:auto;padding:20px 26px;display:flex;flex-direction:column;gap:16px}
+  .msg{max-width:78%}
+  .msg .who{font-size:11px;color:var(--fg-faint);margin-bottom:4px}
+  .msg .body{padding:10px 14px;border-radius:10px;font-size:13.5px}
+  .msg.user{align-self:flex-end}
+  .msg.user .who{text-align:right}
+  .msg.user .body{background:var(--accent-dim);color:#e8eeff}
+  .msg.claude .body{background:var(--bg3)}
+  .msg.sys{align-self:center;max-width:90%}
+  .attach{display:inline-flex;align-items:center;gap:5px;margin-top:6px;font-size:11.5px;
+          background:rgba(0,0,0,.25);border-radius:6px;padding:3px 9px;color:#c8d4f0}
+  /* ---------- 게이트 카드 공통 ---------- */
+  .card{align-self:stretch;max-width:100%;background:var(--card);border:1px solid var(--line);
+        border-radius:12px;overflow:hidden}
+  .card .head{display:flex;align-items:center;gap:8px;padding:10px 14px;
+              background:var(--bg3);border-bottom:1px solid var(--line);font-size:12.5px;font-weight:600}
+  .card .head .step{font-size:10.5px;padding:2px 8px;border-radius:8px;
+                    background:rgba(79,140,255,.15);color:var(--accent)}
+  .card .cbody{padding:14px}
+  .card .foot{display:flex;gap:8px;justify-content:flex-end;padding:10px 14px;
+              border-top:1px solid var(--line)}
+  .btn{padding:7px 16px;border-radius:7px;border:1px solid var(--line);
+       background:var(--bg3);color:var(--fg);font-size:12.5px;cursor:pointer}
+  .btn:hover{border-color:var(--fg-faint)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary:hover{filter:brightness(1.1)}
+  .btn.danger{color:var(--err);border-color:rgba(224,92,92,.4)}
+  .card.locked-note{border-style:dashed;text-align:center;color:var(--fg-faint);
+                    font-size:12px;padding:8px}
+  /* Step2 requirements 렌더 */
+  .req h4{font-size:13px;margin:10px 0 4px;color:#aebadb}
+  .req h4:first-child{margin-top:0}
+  .req ul{margin:2px 0 2px 18px;color:var(--fg-dim);font-size:12.5px}
+  /* Step3.5 diff */
+  .ftabs{display:flex;gap:2px;border-bottom:1px solid var(--line);background:var(--bg3)}
+  .ftab{padding:8px 14px;font-size:12px;font-family:var(--mono);cursor:pointer;
+        color:var(--fg-dim);border-bottom:2px solid transparent}
+  .ftab.active{color:var(--fg);border-bottom-color:var(--accent)}
+  .ftab .fchg{font-size:10px;margin-left:5px}
+  .fchg.add{color:var(--ok)} .fchg.del{color:var(--err)}
+  .warnbar{display:flex;gap:8px;align-items:center;padding:8px 14px;font-size:12px;
+           background:rgba(224,166,60,.1);color:var(--warn);border-bottom:1px solid var(--line)}
+  .diff{font-family:var(--mono);font-size:12px;line-height:1.5;overflow-x:auto;
+        max-height:230px;overflow-y:auto}
+  .diff .ln{display:flex;white-space:pre}
+  .diff .no{width:38px;text-align:right;padding-right:8px;color:var(--fg-faint);
+            user-select:none;flex-shrink:0}
+  .diff .add{background:rgba(63,185,106,.12);color:#9fd8b4}
+  .diff .del{background:rgba(224,92,92,.12);color:#e8a8a8}
+  .diff .ctx{color:var(--fg-dim)}
+  .diff .hunk{color:var(--accent);background:rgba(79,140,255,.07)}
+  /* CI 결과 카드 */
+  .ci-sum{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;margin-bottom:10px}
+  .ci-sum a{color:var(--accent);text-decoration:none;font-family:var(--mono);font-size:12px}
+  .failbox{background:#141720;border:1px solid var(--line);border-radius:8px;
+           padding:10px 12px;font-family:var(--mono);font-size:11.5px;color:#e8a8a8;
+           white-space:pre-wrap;max-height:120px;overflow-y:auto}
+  .matrix{display:flex;gap:6px;margin:8px 0 10px;flex-wrap:wrap}
+  .cell{font-size:11px;font-family:var(--mono);padding:3px 9px;border-radius:6px}
+  .cell.p{background:rgba(63,185,106,.15);color:var(--ok)}
+  .cell.f{background:rgba(224,92,92,.15);color:var(--err)}
+  /* 생성중 */
+  .typing{display:flex;gap:5px;padding:12px 14px}
+  .typing i{width:7px;height:7px;border-radius:50%;background:var(--fg-faint);
+            animation:blink 1.2s infinite}
+  .typing i:nth-child(2){animation-delay:.2s} .typing i:nth-child(3){animation-delay:.4s}
+  @keyframes blink{0%,70%,100%{opacity:.25}35%{opacity:1}}
+  /* 입력창 */
+  .inputbar{border-top:1px solid var(--line);padding:12px 20px;background:var(--bg2)}
+  .inputbox{display:flex;gap:10px;align-items:flex-end}
+  .inputbox textarea{flex:1;resize:none;height:44px;background:var(--bg3);color:var(--fg);
+        border:1px solid var(--line);border-radius:10px;padding:11px 14px;font:13.5px inherit}
+  .inputbox textarea:disabled{opacity:.45}
+  .lock-note{font-size:11.5px;color:var(--warn);margin-bottom:7px}
+  /* ---------- 우: studio 패널 ---------- */
+  .panel{background:var(--bg2);border-left:1px solid var(--line);padding:16px;
+         overflow-y:auto;display:flex;flex-direction:column;gap:14px}
+  .p-title{font-size:11px;color:var(--fg-faint);letter-spacing:.5px}
+  .p-id{font-family:var(--mono);font-size:15px;font-weight:700}
+  .state-row{display:flex;align-items:center;gap:8px;font-size:12.5px}
+  .p-sec{background:var(--bg3);border:1px solid var(--line);border-radius:10px;padding:12px}
+  .p-sec h5{font-size:11.5px;color:var(--fg-dim);margin-bottom:9px;letter-spacing:.3px}
+  .att{display:flex;align-items:center;gap:8px;padding:6px 0;font-size:12.5px;
+       border-bottom:1px solid var(--line)}
+  .att:last-child{border-bottom:none}
+  .att .n{font-family:var(--mono);color:var(--fg-dim);width:26px}
+  .att .bid{font-family:var(--mono);font-size:11.5px;color:var(--accent);margin-left:auto}
+  .spin{width:11px;height:11px;border:2px solid var(--accent-dim);border-top-color:var(--accent);
+        border-radius:50%;animation:rot 1s linear infinite;display:inline-block}
+  @keyframes rot{to{transform:rotate(360deg)}}
+  .p-actions{display:flex;flex-direction:column;gap:8px}
+  .steps{display:flex;flex-direction:column;gap:6px;font-size:12px}
+  .steps .st{display:flex;gap:8px;align-items:center;color:var(--fg-faint)}
+  .steps .st.done{color:var(--fg-dim)} .steps .st.now{color:var(--fg);font-weight:600}
+  .steps .ic{width:16px;text-align:center}
+  .links a{display:block;font-size:12px;color:var(--accent);text-decoration:none;padding:3px 0;
+           font-family:var(--mono)}
+  /* ---------- 설정 모달 ---------- */
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;
+           align-items:center;justify-content:center;z-index:10}
+  .overlay.show{display:flex}
+  .modal{width:430px;background:var(--bg2);border:1px solid var(--line);border-radius:14px}
+  .modal .mh{display:flex;justify-content:space-between;align-items:center;
+             padding:14px 18px;border-bottom:1px solid var(--line);font-weight:600}
+  .modal .mh span{cursor:pointer;color:var(--fg-dim)}
+  .mtabs{display:flex;gap:2px;padding:0 12px;border-bottom:1px solid var(--line)}
+  .mtab{padding:10px 13px;font-size:12.5px;cursor:pointer;color:var(--fg-dim);
+        border-bottom:2px solid transparent}
+  .mtab.active{color:var(--fg);border-bottom-color:var(--accent)}
+  .mbody{padding:16px 18px;display:flex;flex-direction:column;gap:12px;font-size:13px}
+  .field label{display:block;font-size:11.5px;color:var(--fg-dim);margin-bottom:5px}
+  .field input,.field select{width:100%;background:var(--bg3);border:1px solid var(--line);
+        color:var(--fg);border-radius:7px;padding:8px 11px;font-size:13px}
+  .radio-row{display:flex;gap:14px;font-size:12.5px;color:var(--fg-dim)}
+  .hint{font-size:11.5px;color:var(--fg-faint)}
+  .hint.warn{color:var(--warn)}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ================= 헤더 ================= -->
+  <header>
+    <div class="logo">ToolHub <em>Studio</em></div>
+    <select class="tool-sel">
+      <option>대상 tool: parser</option>
+      <option>대상 tool: packer</option>
+      <option>대상 tool: verifier</option>
+    </select>
+    <div class="branch">feature/foo</div>
+    <div class="spacer"></div>
+    <div class="badge"><span class="dot ok"></span>Knox · 홍길동</div>
+    <div class="badge"><span class="dot ok"></span>AWS</div>
+    <div class="badge reconnect" title="클릭하여 재연결"><span class="dot off"></span>GHE 재연결</div>
+    <div class="gear" onclick="toggleModal(true)">⚙</div>
+  </header>
+
+  <div class="main">
+
+    <!-- ================= 좌: 세션 목록 ================= -->
+    <aside class="sidebar">
+      <div class="sb-head">세션</div>
+      <button class="new-btn">＋ 새 작업</button>
+      <div class="sess active">
+        <div class="t">parser에 A′·B′·C′ 적용</div>
+        <div class="m"><span class="chip run">검증 중</span><span>S-0042 · 오늘</span></div>
+      </div>
+      <div class="sess">
+        <div class="t">packer 출력 포맷 v2 대응</div>
+        <div class="m"><span class="chip review">리뷰 대기</span><span>S-0041 · 어제</span></div>
+      </div>
+      <div class="sess">
+        <div class="t">verifier 로그 규격 정리</div>
+        <div class="m"><span class="chip pass">pass</span><span>S-0040 · 7/15</span></div>
+      </div>
+      <div class="sess">
+        <div class="t">parser 인코딩 버그 수정</div>
+        <div class="m"><span class="chip done">완료</span><span>S-0038 · 7/11</span></div>
+      </div>
+    </aside>
+
+    <!-- ================= 중앙: 채팅 ================= -->
+    <section class="chat">
+      <div class="msgs">
+
+        <div class="msg user">
+          <div class="who">홍길동</div>
+          <div class="body">
+            parser에 고객 요구 A′, B′, C′를 적용해야 합니다. 요구조건 정리부터 부탁합니다.
+            <div class="attach">📎 고객요구_2026-07.docx (1.2 MB)</div>
+          </div>
+        </div>
+
+        <div class="msg claude">
+          <div class="who">Claude</div>
+          <div class="body">첨부 문서와 parser 분석 md(기준 SHA a3f9e2, 신선)를 바탕으로 requirements 초안을 작성했습니다. 검토 후 승인해 주세요.</div>
+        </div>
+
+        <!-- Step 2 승인 카드 (승인 완료 상태) -->
+        <div class="card">
+          <div class="head"><span class="step">STEP 2</span> requirements 확정 게이트
+            <span style="margin-left:auto;color:var(--ok);font-size:11.5px">✔ 승인됨 · studio S-0042 발급</span></div>
+          <div class="cbody req">
+            <h4>R1. 입력 스키마 확장 (A′)</h4>
+            <ul><li>필드 <code>charset</code> 추가 — 기본값 utf-8, 미지원 값은 오류 코드 E17 반환</li></ul>
+            <h4>R2. 출력 반올림 규칙 (B′)</h4>
+            <ul><li>수치 출력은 <b>내림(floor)</b> 처리 — 소수 3자리 기준</li></ul>
+            <h4>R3. 로그 형식 (C′)</h4>
+            <ul><li>기존 로그 규약 유지, 신규 항목은 <code>[A17]</code> 태그 사용</li></ul>
+          </div>
+          <div class="foot">
+            <button class="btn" disabled>수정 요청</button>
+            <button class="btn primary" disabled>승인하고 진행</button>
+          </div>
+        </div>
+
+        <div class="msg claude">
+          <div class="who">Claude</div>
+          <div class="body">코드 생성 완료 (attempt 3) — 수정 2개 파일, 신규 1개 파일. 리뷰 후 승인하면 push → stage 검증으로 진행합니다.</div>
+        </div>
+
+        <!-- Step 3.5 리뷰 카드 (현재 게이트) -->
+        <div class="card">
+          <div class="head"><span class="step">STEP 3.5</span> 코드 리뷰 게이트 — stage 전달 전
+            <span style="margin-left:auto;color:var(--warn);font-size:11.5px">승인 대기</span></div>
+          <div class="ftabs">
+            <div class="ftab active" onclick="showFile(this,'f1')">parser.c
+              <span class="fchg add">+41</span> <span class="fchg del">−12</span></div>
+            <div class="ftab" onclick="showFile(this,'f2')">parser_charset.c
+              <span class="fchg add">+88</span></div>
+            <div class="ftab" onclick="showFile(this,'f3')">test_parser_a17.c
+              <span class="fchg add">+64</span></div>
+          </div>
+          <div class="warnbar">⚠ 회귀 경고: parser.c 라인 수가 직전 회차 대비 8% 감소 — 내용 누락 여부 확인 권장</div>
+          <div class="diff" id="f1">
+            <div class="ln hunk"><span class="no"></span>@@ -118,9 +118,14 @@ parse_number()</div>
+            <div class="ln ctx"><span class="no">118</span>  double v = strtod(tok, &amp;end);</div>
+            <div class="ln del"><span class="no">119</span>- return round3(v);</div>
+            <div class="ln add"><span class="no">119</span>+ /* R2: 내림(floor) 처리, 소수 3자리 */</div>
+            <div class="ln add"><span class="no">120</span>+ return floor3(v);</div>
+            <div class="ln ctx"><span class="no">121</span>  }</div>
+            <div class="ln hunk"><span class="no"></span>@@ -204,6 +209,12 @@ parse_header()</div>
+            <div class="ln add"><span class="no">209</span>+ if (!charset_supported(h-&gt;charset))</div>
+            <div class="ln add"><span class="no">210</span>+     return E17;   /* R1 */</div>
+            <div class="ln ctx"><span class="no">211</span>  ...</div>
+          </div>
+          <div class="diff" id="f2" style="display:none">
+            <div class="ln hunk"><span class="no"></span>@@ -0,0 +1,88 @@ (신규 파일)</div>
+            <div class="ln add"><span class="no">1</span>+ #include "parser.h"</div>
+            <div class="ln add"><span class="no">2</span>+ /* R1: charset 지원 테이블 */</div>
+            <div class="ln add"><span class="no">3</span>+ static const char *SUPPORTED[] = {"utf-8","euc-kr",0};</div>
+            <div class="ln add"><span class="no">4</span>+ int charset_supported(const char *cs) { ... }</div>
+          </div>
+          <div class="diff" id="f3" style="display:none">
+            <div class="ln hunk"><span class="no"></span>@@ -0,0 +1,64 @@ (신규 파일)</div>
+            <div class="ln add"><span class="no">1</span>+ /* R1/R2 testcase — 규약: §6 test_*.c */</div>
+            <div class="ln add"><span class="no">2</span>+ TEST(charset_unsupported_returns_E17) { ... }</div>
+            <div class="ln add"><span class="no">3</span>+ TEST(number_is_floored_3digits) { ... }</div>
+          </div>
+          <div class="foot">
+            <span class="hint" style="margin-right:auto">승인 모드: 매번 확인 (설정에서 변경)</span>
+            <button class="btn danger">거부 (사유 입력)</button>
+            <button class="btn primary">승인 → push + 검증</button>
+          </div>
+        </div>
+
+        <!-- 직전 회차 CI 결과 카드 (참고용, attempt 2) -->
+        <div class="msg sys card">
+          <div class="head"><span class="step">CI</span> attempt 2 검증 결과
+            <span style="margin-left:auto;color:var(--err);font-size:11.5px">fail</span></div>
+          <div class="cbody">
+            <div class="ci-sum">
+              <span>buildid <a href="#">b-105</a></span>
+              <span>run <a href="#">#88213</a></span>
+              <span style="color:var(--fg-faint)">commit 91c4f2 · 14:22</span>
+            </div>
+            <div class="matrix">
+              <span class="cell p">linux/x64 build ✓</span>
+              <span class="cell p">linux/x64 test ✓</span>
+              <span class="cell p">win/x64 build ✓</span>
+              <span class="cell f">win/x64 test ✗</span>
+            </div>
+            <div class="failbox">test_parser_a17.c:41: charset_unsupported_returns_E17
+  expected E17 (23), got E_GENERIC (1)
+  → win 경로에서 charset 비교가 대소문자 구분됨 (fail_summary)</div>
+          </div>
+        </div>
+
+        <!-- 생성 중 표시 예시 -->
+        <div class="msg claude">
+          <div class="who">Claude · 생성 중</div>
+          <div class="body typing"><i></i><i></i><i></i></div>
+        </div>
+
+      </div>
+
+      <!-- 입력창 (게이트로 잠김) -->
+      <div class="inputbar">
+        <div class="lock-note">⚠ Step 3.5 리뷰 카드를 처리해야 입력할 수 있습니다</div>
+        <div class="inputbox">
+          <textarea disabled placeholder="메시지 입력..."></textarea>
+          <button class="btn" disabled>📎</button>
+          <button class="btn primary" disabled>전송</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 우: studio 상태 패널 ================= -->
+    <aside class="panel">
+      <div>
+        <div class="p-title">STUDIO</div>
+        <div class="p-id">S-0042</div>
+        <div class="state-row" style="margin-top:5px">
+          <span class="chip review">awaiting_review</span>
+          <span style="color:var(--fg-faint);font-size:11.5px">attempt 3</span>
+        </div>
+      </div>
+
+      <div class="p-sec">
+        <h5>진행 단계</h5>
+        <div class="steps">
+          <div class="st done"><span class="ic">✔</span>1 컨텍스트 로드 (md 신선)</div>
+          <div class="st done"><span class="ic">✔</span>2 requirements 확정</div>
+          <div class="st done"><span class="ic">✔</span>3 코드 생성 (attempt 3)</div>
+          <div class="st now"><span class="ic">▶</span>3.5 코드 리뷰 ← 현재</div>
+          <div class="st"><span class="ic">·</span>4 push → dispatch</div>
+          <div class="st"><span class="ic">·</span>5 CI 결과 / 루프</div>
+        </div>
+      </div>
+
+      <div class="p-sec">
+        <h5>회차 이력 (1 studio : N build)</h5>
+        <div class="att"><span class="n">#1</span><span class="chip fail">fail</span>
+          <span class="bid">b-101</span></div>
+        <div class="att"><span class="n">#2</span><span class="chip fail">fail</span>
+          <span class="bid">b-105</span></div>
+        <div class="att"><span class="n">#3</span><span class="chip review">리뷰 대기</span>
+          <span class="bid" style="color:var(--fg-faint)">—</span></div>
+      </div>
+
+      <div class="p-sec">
+        <h5>링크</h5>
+        <div class="links">
+          <a href="#">↗ 브랜치 feature/foo (GHE)</a>
+          <a href="#">↗ 최근 커밋 91c4f2</a>
+          <a href="#">↗ requirements.md (승인본)</a>
+        </div>
+      </div>
+
+      <div class="p-actions">
+        <button class="btn danger">요청 취소 (stage 중단 시그널)</button>
+        <button class="btn">Step 2로 복귀 — 요구조건 재확정</button>
+        <div class="hint">재확정 시 새 studio_id가 발급되고 S-0042는 abandoned로 종결됩니다</div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<!-- ================= 설정 모달 ================= -->
+<div class="overlay" id="ovl">
+  <div class="modal">
+    <div class="mh">설정 <span onclick="toggleModal(false)">✕</span></div>
+    <div class="mtabs">
+      <div class="mtab active" onclick="showTab(this,'t1')">연결·브랜치</div>
+      <div class="mtab" onclick="showTab(this,'t2')">승인 모드</div>
+      <div class="mtab" onclick="showTab(this,'t3')">관리자</div>
+    </div>
+    <div class="mbody" id="t1">
+      <div class="field"><label>GHE 연결</label>
+        <button class="btn primary" style="width:100%">GitHub 연결 (OAuth 승인)</button>
+        <div class="hint">승인 페이지에서 클릭 1회 — 토큰은 서버에 암호화 보관됩니다</div>
+      </div>
+      <div class="field"><label>작업 브랜치</label>
+        <input value="feature/foo">
+        <div class="hint">보호 브랜치·타 사용자 지정 브랜치는 저장 시 거부됩니다</div>
+      </div>
+    </div>
+    <div class="mbody" id="t2" style="display:none">
+      <div class="field"><label>Step 3.5 코드 리뷰 승인 모드</label>
+        <div class="radio-row">
+          <label><input type="radio" name="ap" checked> 매번 확인 (기본)</label>
+          <label><input type="radio" name="ap"> 자동 승인</label>
+        </div>
+        <div class="hint warn">⚠ 자동 승인 시 생성 코드가 사람 검토 없이 runner에서 실행됩니다</div>
+      </div>
+    </div>
+    <div class="mbody" id="t3" style="display:none">
+      <div class="hint">is_admin 사용자에게만 표시</div>
+      <button class="btn" style="width:100%">브랜치 조회 (요청 이력·마지막 커밋·CI 상태)</button>
+      <button class="btn" style="width:100%">미터링 (usage_log 집계 + 성공 지표)</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  function showFile(tab,id){
+    document.querySelectorAll('.ftab').forEach(t=>t.classList.remove('active'));
+    tab.classList.add('active');
+    ['f1','f2','f3'].forEach(f=>document.getElementById(f).style.display = f===id?'block':'none');
+  }
+  function toggleModal(on){document.getElementById('ovl').classList.toggle('show',on)}
+  function showTab(tab,id){
+    document.querySelectorAll('.mtab').forEach(t=>t.classList.remove('active'));
+    tab.classList.add('active');
+    ['t1','t2','t3'].forEach(t=>document.getElementById(t).style.display = t===id?'flex':'none');
+  }
+</script>
+</body>
+</html>
